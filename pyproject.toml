@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sprrint"
+version = "0.1.0"
+description = "CLI and MCP server for Sprrint — the same product, from a terminal or an agent."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Sprrint" }]
+keywords = ["sprrint", "cli", "mcp", "sprints", "tasks"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development",
+]
+dependencies = [
+  "httpx>=0.27",
+  "mcp>=1.9,<2",
+  "rich>=13.7",
+  "tomli-w>=1.0",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-httpx>=0.30"]
+
+[project.scripts]
+sprrint = "sprrint.cli:main"
+sprrint-mcp = "sprrint.mcp_server:main"
+
+[project.urls]
+Homepage = "https://sprrint.run"
+Documentation = "https://github.com/ejasmuhamed/sprrint-cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sprrint"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
