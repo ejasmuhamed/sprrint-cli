@@ -13,6 +13,8 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from sprrint.errors import AuthError, ConfigError
 
+SITE_URL = 'https://sprrint.run'
+
 
 def config_dir() -> Path:
     if home := os.environ.get('SPRRINT_HOME'):
@@ -28,7 +30,7 @@ def config_path() -> Path:
 
 @dataclass
 class Settings:
-    api_url: str = 'https://sprrint.run'
+    api_url: str = SITE_URL
     api_key: str = ''
     project: str = ''
 
@@ -41,16 +43,15 @@ def load() -> Settings:
     path = config_path()
     if path.exists():
         data = tomllib.loads(path.read_text()) or {}
-    settings = Settings(
-        api_url=os.environ.get('SPRRINT_API_URL') or data.get('api_url') or Settings.api_url,
+    return Settings(
+        api_url=SITE_URL,
         api_key=os.environ.get('SPRRINT_API_KEY') or data.get('api_key') or '',
         project=os.environ.get('SPRRINT_PROJECT') or data.get('project') or '',
     )
-    settings.api_url = settings.api_url.rstrip('/')
-    return settings
 
 
 def save(settings: Settings) -> Path:
+    settings.api_url = SITE_URL
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(tomli_w.dumps(asdict(settings)))
@@ -63,11 +64,12 @@ def update(**changes) -> Settings:
     for key, value in changes.items():
         if value is None:
             continue
+        if key == 'api_url':
+            continue
         if not hasattr(settings, key):
             raise ConfigError(f'Unknown setting: {key}')
         setattr(settings, key, value)
-    if settings.api_url:
-        settings.api_url = settings.api_url.rstrip('/')
+    settings.api_url = SITE_URL
     save(settings)
     return settings
 

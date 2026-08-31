@@ -26,7 +26,13 @@ def task_table(tasks, title='Tasks'):
             task.get('title') or '',
             task.get('status') or '',
             (task.get('sprint') or {}).get('name') or 'Black Hole',
-            (task.get('assignee') or {}).get('display_name') or '—',
+            ', '.join(
+                person.get('display_name')
+                for person in (task.get('assignees') or [])
+                if person and person.get('display_name')
+            )
+            or (task.get('assignee') or {}).get('display_name')
+            or '—',
             task.get('due_on') or '—',
         )
     return table

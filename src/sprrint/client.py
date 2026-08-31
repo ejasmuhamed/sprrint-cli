@@ -101,6 +101,15 @@ class Client:
     def primary_email(self, email_id: int):
         return self.post(f'/me/emails/{email_id}/primary')
 
+    def confirm_primary_email(self, email_id: int, code: str, side: str):
+        return self.post(f'/me/emails/{email_id}/primary/confirm', {'code': code, 'side': side})
+
+    def resend_primary_email(self, email_id: int):
+        return self.post(f'/me/emails/{email_id}/primary/resend')
+
+    def cancel_primary_email(self, email_id: int):
+        return self.post(f'/me/emails/{email_id}/primary/cancel')
+
     def resend_email(self, email_id: int):
         return self.post(f'/me/emails/{email_id}/resend')
 

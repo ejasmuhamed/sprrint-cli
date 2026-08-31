@@ -199,12 +199,12 @@ def sprrint_tasks_create(
     category: Optional[str] = None,
     tags: Optional[str] = None,
 ) -> dict:
-    """Create a task. status is todo|progress|blocked|done. priority is none|low|medium|high. tags is comma-separated."""
+    """Create a task. status is todo|progress|blocked|done. priority is none|low|medium|high. assignee and tags are comma-separated."""
     fields = {'title': title, 'description': description, 'status': status, 'priority': priority}
     if sprint:
         fields['sprint'] = sprint
     if assignee:
-        fields['assignee'] = assignee
+        fields['assignees'] = [part.strip() for part in assignee.split(',') if part.strip()]
     if due_on:
         fields['due_on'] = due_on
     if category:
@@ -243,9 +243,11 @@ def sprrint_tasks_update(
     elif current.get('sprint'):
         fields['sprint'] = current['sprint']['slug']
     if assignee is not None:
-        fields['assignee'] = assignee
+        fields['assignees'] = [part.strip() for part in assignee.split(',') if part.strip()]
+    elif current.get('assignees'):
+        fields['assignees'] = [person.get('username') for person in current['assignees'] if person.get('username')]
     elif current.get('assignee'):
-        fields['assignee'] = current['assignee']['username']
+        fields['assignees'] = [current['assignee']['username']]
     if due_on is not None:
         fields['due_on'] = due_on
     elif current.get('due_on'):

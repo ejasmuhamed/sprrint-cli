@@ -89,7 +89,6 @@ def _root(
 
 @app.command()
 def login(
-    url: Optional[str] = typer.Option(None, '--url', help='Sprrint site, e.g. https://sprrint.run'),
     email: Optional[str] = typer.Option(None, '--email', '-e'),
     name: str = typer.Option('CLI', '--name', help='Name stored on the API key.'),
     plain: bool = typer.Option(False, '--plain'),
@@ -97,9 +96,6 @@ def login(
 ):
     """Sign in with an email code and store an API key."""
     settings = load()
-    if url:
-        settings.api_url = url.rstrip('/')
-        save(settings)
     if not email:
         email = typer.prompt('Email')
     api = Client(settings)
@@ -366,7 +362,7 @@ def tasks_create(
     status: str = typer.Option('todo'),
     priority: str = typer.Option('none'),
     sprint: Optional[str] = None,
-    assignee: Optional[str] = None,
+    assignee: Optional[str] = typer.Option(None, help='Comma-separated usernames.'),
     due: Optional[str] = typer.Option(None, '--due'),
     category: Optional[str] = None,
     tags: Optional[str] = typer.Option(None, help='Comma-separated tags.'),
@@ -379,7 +375,7 @@ def tasks_create(
     if sprint:
         fields['sprint'] = sprint
     if assignee:
-        fields['assignee'] = assignee
+        fields['assignees'] = [part.strip() for part in assignee.split(',') if part.strip()]
     if due:
         fields['due_on'] = due
     if category:
@@ -399,7 +395,7 @@ def tasks_update(
     status: Optional[str] = None,
     priority: Optional[str] = None,
     sprint: Optional[str] = None,
-    assignee: Optional[str] = None,
+    assignee: Optional[str] = typer.Option(None, help='Comma-separated usernames.'),
     due: Optional[str] = typer.Option(None, '--due'),
     category: Optional[str] = None,
     tags: Optional[str] = None,
@@ -420,9 +416,11 @@ def tasks_update(
     elif current.get('sprint'):
         fields['sprint'] = current['sprint']['slug']
     if assignee is not None:
-        fields['assignee'] = assignee
+        fields['assignees'] = [part.strip() for part in assignee.split(',') if part.strip()]
+    elif current.get('assignees'):
+        fields['assignees'] = [person.get('username') for person in current['assignees'] if person.get('username')]
     elif current.get('assignee'):
-        fields['assignee'] = current['assignee']['username']
+        fields['assignees'] = [current['assignee']['username']]
     if due is not None:
         fields['due_on'] = due
     elif current.get('due_on'):
@@ -588,7 +586,7 @@ def blackhole_list(
             'title': item.get('title'),
             'status': item.get('status'),
             'due_on': item.get('age'),
-            'assignee': {'display_name': item.get('owner')},
+            'assignees': [{'display_name': item.get('owner')}] if item.get('owner') else [],
             'sprint': None,
         }
         for item in data.get('tasks') or []
@@ -811,11 +809,11 @@ def config_show(json_mode: bool = typer.Option(False, '--json')):
 
 @config_app.command('set')
 def config_set(
-    key: str = typer.Argument(..., help='api_url | project | api_key'),
+    key: str = typer.Argument(..., help='project | api_key'),
     value: str = typer.Argument(...),
 ):
-    if key not in {'api_url', 'project', 'api_key'}:
-        raise typer.BadParameter('Use api_url, project, or api_key.')
+    if key not in {'project', 'api_key'}:
+        raise typer.BadParameter('Use project or api_key. The CLI always talks to https://sprrint.run.')
     settings = update(**{key: value})
     console.print(f'{key} = {getattr(settings, key)}')
 

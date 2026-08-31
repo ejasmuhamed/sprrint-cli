@@ -1,5 +1,5 @@
 from sprrint.client import Client
-from sprrint.config import Settings
+from sprrint.config import SITE_URL, Settings, load, save
 from sprrint.errors import AuthError, SprrintError
 
 
@@ -15,18 +15,28 @@ def test_requires_key(monkeypatch, tmp_path):
 
 
 def test_builds_api_url():
-    client = Client(Settings(api_url='http://localhost:8000/', api_key='spr_live_x'))
-    assert client._url('/me') == 'http://localhost:8000/api/v1/me'
+    client = Client(Settings(api_url='https://sprrint.run/', api_key='spr_live_x'))
+    assert client._url('/me') == 'https://sprrint.run/api/v1/me'
+
+
+def test_load_always_uses_sprrint_run(monkeypatch, tmp_path):
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    monkeypatch.setenv('SPRRINT_API_URL', 'http://localhost:8000')
+    (tmp_path / 'config.toml').write_text('api_url = "http://127.0.0.1:8000"\napi_key = "spr_live_ok"\n')
+    settings = load()
+    assert settings.api_url == SITE_URL
+    save(Settings(api_url='http://localhost:9', api_key='spr_live_ok'))
+    assert load().api_url == SITE_URL
 
 
 def test_error_payload(httpx_mock):
     httpx_mock.add_response(
         method='GET',
-        url='http://localhost:8000/api/v1/me',
+        url='https://sprrint.run/api/v1/me',
         status_code=401,
         json={'ok': False, 'error': 'That API key is not valid.', 'code': 'unauthorized'},
     )
-    client = Client(Settings(api_url='http://localhost:8000', api_key='spr_live_bad'))
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_bad'))
     try:
         client.me()
         assert False
@@ -36,31 +46,31 @@ def test_error_payload(httpx_mock):
 
 def test_unwraps_data(httpx_mock):
     httpx_mock.add_response(
-        url='http://localhost:8000/api/v1/projects',
+        url='https://sprrint.run/api/v1/projects',
         json={'ok': True, 'data': [{'key': 'BR', 'name': 'Brand Refresh'}]},
     )
-    client = Client(Settings(api_url='http://localhost:8000', api_key='spr_live_ok'))
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok'))
     assert client.projects()[0]['key'] == 'BR'
 
 
 def test_create_task_posts_json(httpx_mock):
     httpx_mock.add_response(
         method='POST',
-        url='http://localhost:8000/api/v1/projects/BR/tasks/create',
+        url='https://sprrint.run/api/v1/projects/BR/tasks/create',
         json={'ok': True, 'data': {'key': 'BR-1', 'title': 'Ship it'}},
     )
-    client = Client(Settings(api_url='http://localhost:8000', api_key='spr_live_ok'))
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok'))
     task = client.create_task('BR', title='Ship it')
     assert task['key'] == 'BR-1'
 
 
 def test_server_error(httpx_mock):
     httpx_mock.add_response(
-        url='http://localhost:8000/api/v1/projects/ZZ',
+        url='https://sprrint.run/api/v1/projects/ZZ',
         status_code=404,
         json={'ok': False, 'error': 'Project not found.', 'code': 'not_found'},
     )
-    client = Client(Settings(api_url='http://localhost:8000', api_key='spr_live_ok'))
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok'))
     try:
         client.project('ZZ')
         assert False

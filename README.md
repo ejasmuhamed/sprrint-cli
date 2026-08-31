@@ -19,25 +19,24 @@ pipx install .
 # later: pipx install sprrint
 ```
 
-You need a Sprrint site (your team’s instance) and an account.
+You need an account on [sprrint.run](https://sprrint.run).
 
 ## Sign in
 
 ```bash
-sprrint login --url https://your-sprrint.example
+sprrint login
 ```
 
-Sprrint emails a 6-digit code. After it checks out, the CLI stores an API key in `~/.config/sprrint/config.toml` (mode `600`).
+Sprrint emails a 6-digit code. After it checks out, the CLI stores an API key in `~/.config/sprrint/config.toml` (mode `600`). The CLI and MCP always talk to `https://sprrint.run`.
 
 You can also mint a key in the web app: **You → Keys**, then:
 
 ```bash
-sprrint config set api_url https://your-sprrint.example
 sprrint config set api_key spr_live_…
 sprrint config set project BR
 ```
 
-Environment variables override the file: `SPRRINT_API_URL`, `SPRRINT_API_KEY`, `SPRRINT_PROJECT`.
+Environment variables override the file: `SPRRINT_API_KEY`, `SPRRINT_PROJECT`.
 
 ## Everyday commands
 
@@ -79,7 +78,6 @@ Cursor / Claude Desktop:
       "command": "sprrint",
       "args": ["mcp"],
       "env": {
-        "SPRRINT_API_URL": "https://your-sprrint.example",
         "SPRRINT_API_KEY": "spr_live_…"
       }
     }

@@ -18,9 +18,9 @@ def test_help():
 
 def test_whoami_json(monkeypatch, tmp_path, httpx_mock):
     monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
-    save(Settings(api_url='http://localhost:8000', api_key='spr_live_ok', project='BR'))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
     httpx_mock.add_response(
-        url='http://localhost:8000/api/v1/me',
+        url='https://sprrint.run/api/v1/me',
         json={'ok': True, 'data': {
             'user': {'username': 'ejas', 'display_name': 'Ejas', 'email': 'ejas@acme.test'},
             'workspace': {'name': 'Acme', 'slug': 'acme', 'role': 'owner'},
@@ -33,10 +33,10 @@ def test_whoami_json(monkeypatch, tmp_path, httpx_mock):
 
 def test_tasks_create(monkeypatch, tmp_path, httpx_mock):
     monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
-    save(Settings(api_url='http://localhost:8000', api_key='spr_live_ok', project='BR'))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
     httpx_mock.add_response(
         method='POST',
-        url='http://localhost:8000/api/v1/projects/BR/tasks/create',
+        url='https://sprrint.run/api/v1/projects/BR/tasks/create',
         json={'ok': True, 'data': {'key': 'BR-12', 'title': 'From CLI'}},
     )
     result = runner.invoke(app, ['tasks', 'create', '--title', 'From CLI', '--plain', '--json'])
@@ -46,10 +46,10 @@ def test_tasks_create(monkeypatch, tmp_path, httpx_mock):
 
 def test_blackhole_pull(monkeypatch, tmp_path, httpx_mock):
     monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
-    save(Settings(api_url='http://localhost:8000', api_key='spr_live_ok', project='BR'))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
     httpx_mock.add_response(
         method='POST',
-        url='http://localhost:8000/api/v1/projects/BR/blackhole/BR-9/pull',
+        url='https://sprrint.run/api/v1/projects/BR/blackhole/BR-9/pull',
         json={'ok': True, 'data': {'key': 'BR-9', 'sprint': {'name': 'Launch Week'}}},
     )
     result = runner.invoke(app, ['blackhole', 'pull', 'BR-9', '--plain'])
@@ -59,12 +59,19 @@ def test_blackhole_pull(monkeypatch, tmp_path, httpx_mock):
 
 def test_error_exit(monkeypatch, tmp_path, httpx_mock):
     monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
-    save(Settings(api_url='http://localhost:8000', api_key='spr_live_ok', project='BR'))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
     httpx_mock.add_response(
-        url='http://localhost:8000/api/v1/me',
+        url='https://sprrint.run/api/v1/me',
         status_code=401,
         json={'ok': False, 'error': 'That API key is not valid.', 'code': 'unauthorized'},
     )
     result = runner.invoke(app, ['whoami', '--plain'])
     assert result.exit_code == 1
     assert 'not valid' in result.stdout or 'not valid' in result.stderr
+
+
+def test_config_set_rejects_api_url(monkeypatch, tmp_path):
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    result = runner.invoke(app, ['config', 'set', 'api_url', 'http://localhost:8000'])
+    assert result.exit_code != 0
+    assert 'sprrint.run' in result.stdout or 'sprrint.run' in result.stderr
