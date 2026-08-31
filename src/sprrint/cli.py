@@ -25,6 +25,7 @@ tasks_app = typer.Typer(help='Tasks')
 sprints_app = typer.Typer(help='Sprints')
 blackhole_app = typer.Typer(help='Black Hole')
 workspace_app = typer.Typer(help='Workspace')
+workspaces_app = typer.Typer(help='Workspaces')
 keys_app = typer.Typer(help='API keys')
 me_app = typer.Typer(help='Your profile')
 config_app = typer.Typer(help='Local CLI settings')
@@ -35,6 +36,7 @@ app.add_typer(tasks_app, name='tasks')
 app.add_typer(sprints_app, name='sprints')
 app.add_typer(blackhole_app, name='blackhole')
 app.add_typer(workspace_app, name='workspace')
+app.add_typer(workspaces_app, name='workspaces')
 app.add_typer(keys_app, name='keys')
 app.add_typer(me_app, name='me')
 app.add_typer(config_app, name='config')
@@ -52,7 +54,20 @@ def run(kind, caption, fn, *, plain=False):
     try:
         with stickman.action(err, kind, caption, plain=plain):
             result = fn()
-    except (SprrintError, AuthError) as exc:
+    except SprrintError as exc:
+        if exc.extra.get('needs_block_note'):
+            stickman.stumble(err, f"{exc.extra.get('key') or 'Task'} needs a blocked note. Pass --blocked-note.", plain=plain)
+        elif exc.extra.get('needs_confirm'):
+            count = len(exc.extra.get('subtasks') or [])
+            stickman.stumble(
+                err,
+                f"{exc.extra.get('key') or 'Task'} has {count} open subtask(s). Pass --confirm-complete to finish them too.",
+                plain=plain,
+            )
+        else:
+            stickman.stumble(err, exc.message, plain=plain)
+        raise typer.Exit(1) from exc
+    except AuthError as exc:
         stickman.stumble(err, exc.message, plain=plain)
         raise typer.Exit(1) from exc
     return result
@@ -133,6 +148,9 @@ def whoami(json_mode: bool = typer.Option(False, '--json'), plain: bool = typer.
     console.print(f"{user.get('display_name')}  @{user.get('username')}  {user.get('email')}")
     if workspace:
         console.print(f"{workspace.get('name')}  /{workspace.get('slug')}  {workspace.get('role')}")
+    rows = data.get('workspaces') or []
+    if len(rows) > 1:
+        console.print('Workspaces: ' + ', '.join(f"/{item.get('slug')}" for item in rows))
     stickman.celebrate(err, 'That is you.', plain=plain)
 
 
@@ -365,6 +383,8 @@ def tasks_create(
     assignee: Optional[str] = typer.Option(None, help='Comma-separated usernames.'),
     due: Optional[str] = typer.Option(None, '--due'),
     category: Optional[str] = None,
+    parent: Optional[str] = typer.Option(None, help='Parent task key, id, or empty to detach.'),
+    blocked_note: Optional[str] = typer.Option(None, '--blocked-note'),
     tags: Optional[str] = typer.Option(None, help='Comma-separated tags.'),
     json_mode: bool = typer.Option(False, '--json'),
     plain: bool = typer.Option(False, '--plain'),
@@ -380,6 +400,10 @@ def tasks_create(
         fields['due_on'] = due
     if category:
         fields['category'] = category
+    if parent is not None:
+        fields['parent'] = parent
+    if blocked_note is not None:
+        fields['blocked_note'] = blocked_note
     if tags:
         fields['tags'] = [part.strip() for part in tags.split(',') if part.strip()]
     data = run('save', f'Planting {title}', lambda: api.create_task(ref, **fields), plain=plain)
@@ -398,6 +422,8 @@ def tasks_update(
     assignee: Optional[str] = typer.Option(None, help='Comma-separated usernames.'),
     due: Optional[str] = typer.Option(None, '--due'),
     category: Optional[str] = None,
+    parent: Optional[str] = typer.Option(None, help='Parent task key, id, or empty to detach.'),
+    blocked_note: Optional[str] = typer.Option(None, '--blocked-note'),
     tags: Optional[str] = None,
     json_mode: bool = typer.Option(False, '--json'),
     plain: bool = typer.Option(False, '--plain'),
@@ -429,6 +455,14 @@ def tasks_update(
         fields['category'] = category
     elif current.get('category'):
         fields['category'] = current['category']['slug']
+    if parent is not None:
+        fields['parent'] = parent
+    elif current.get('parent'):
+        fields['parent'] = current['parent']['key']
+    if blocked_note is not None:
+        fields['blocked_note'] = blocked_note
+    elif current.get('blocked_note'):
+        fields['blocked_note'] = current['blocked_note']
     if tags is not None:
         fields['tags'] = [part.strip() for part in tags.split(',') if part.strip()]
     data = run('save', f'Saving {key}', lambda: api.update_task(ref, key, **fields), plain=plain)
@@ -440,12 +474,19 @@ def tasks_move(
     key: str,
     status: str,
     project: Optional[str] = typer.Option(None, '--project', '-p'),
+    blocked_note: Optional[str] = typer.Option(None, '--blocked-note'),
+    confirm_complete: bool = typer.Option(False, '--confirm-complete'),
     json_mode: bool = typer.Option(False, '--json'),
     plain: bool = typer.Option(False, '--plain'),
 ):
     api = client()
     ref = api.resolve_project(project)
-    data = run('work', f'Moving {key}', lambda: api.move_task(ref, key, status), plain=plain)
+    data = run(
+        'work',
+        f'Moving {key}',
+        lambda: api.move_task(ref, key, status, blocked_note=blocked_note, confirm_complete=confirm_complete),
+        plain=plain,
+    )
     out(data, json_mode, win=f"{key} → {status}", plain=plain)
 
 
@@ -551,6 +592,45 @@ def sprints_update(
     }.items() if v is not None}
     data = run('save', f'Saving {slug}', lambda: api.update_sprint(ref, slug, **fields), plain=plain)
     out(data, json_mode, win='Sprint saved.', plain=plain)
+
+
+@sprints_app.command('start')
+def sprints_start(
+    slug: str,
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    data = run('work', f'Starting {slug}', lambda: api.start_sprint(ref, slug), plain=plain)
+    out(data, json_mode, win=f'{data.get("name") or slug} is running.', plain=plain)
+
+
+@sprints_app.command('pause')
+def sprints_pause(
+    slug: str,
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    data = run('work', f'Pausing {slug}', lambda: api.pause_sprint(ref, slug), plain=plain)
+    out(data, json_mode, win=f'{data.get("name") or slug} is paused.', plain=plain)
+
+
+@sprints_app.command('complete')
+def sprints_complete(
+    slug: str,
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    data = run('work', f'Completing {slug}', lambda: api.complete_sprint(ref, slug), plain=plain)
+    out(data, json_mode, win=f'{data.get("name") or slug} is done.', plain=plain)
 
 
 @sprints_app.command('delete')
@@ -698,6 +778,44 @@ def workspace_delete(
     out(data, json_mode, win='Workspace deleted.', plain=plain)
 
 
+@workspaces_app.command('list')
+def workspaces_list(json_mode: bool = typer.Option(False, '--json'), plain: bool = typer.Option(False, '--plain')):
+    data = run('read', 'Listing workspaces', lambda: client().workspaces(), plain=plain)
+    if json_mode:
+        out(data, True)
+        return
+    for item in data:
+        console.print(f"/{item.get('slug')}  {item.get('name')}  {item.get('role')}")
+
+
+@workspaces_app.command('create')
+def workspaces_create(
+    name: str = typer.Option(...),
+    slug: Optional[str] = None,
+    description: str = typer.Option(''),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    fields = {'name': name, 'description': description}
+    if slug:
+        fields['slug'] = slug
+    data = run('save', f'Opening {name}', lambda: client().create_workspace(**fields), plain=plain)
+    out(data, json_mode, win=f"/{data.get('slug')} is ready.", plain=plain)
+
+
+@workspaces_app.command('use')
+def workspaces_use(
+    slug: str,
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    settings = update(workspace=slug)
+    payload = {'workspace': slug, 'path': str(config_path())}
+    out(payload, json_mode, win=f'Using /{slug}.', plain=plain)
+    if not json_mode:
+        console.print(f'workspace = {settings.workspace}')
+
+
 @keys_app.command('list')
 def keys_list(json_mode: bool = typer.Option(False, '--json'), plain: bool = typer.Option(False, '--plain')):
     data = run('read', 'Listing keys', lambda: client().keys(), plain=plain)
@@ -795,25 +913,27 @@ def config_show(json_mode: bool = typer.Option(False, '--json')):
     settings = load()
     payload = {
         'api_url': settings.api_url,
+        'workspace': settings.workspace,
         'project': settings.project,
         'api_key': f"{settings.api_key[:12]}…" if settings.api_key else '',
         'path': str(config_path()),
     }
     out(payload, json_mode)
     if not json_mode:
-        console.print(f"url      {settings.api_url}")
-        console.print(f"project  {settings.project or '—'}")
-        console.print(f"key      {payload['api_key'] or '—'}")
-        console.print(f"file     {payload['path']}")
+        console.print(f"url       {settings.api_url}")
+        console.print(f"workspace {settings.workspace or '—'}")
+        console.print(f"project   {settings.project or '—'}")
+        console.print(f"key       {payload['api_key'] or '—'}")
+        console.print(f"file      {payload['path']}")
 
 
 @config_app.command('set')
 def config_set(
-    key: str = typer.Argument(..., help='project | api_key'),
+    key: str = typer.Argument(..., help='project | workspace | api_key'),
     value: str = typer.Argument(...),
 ):
-    if key not in {'project', 'api_key'}:
-        raise typer.BadParameter('Use project or api_key. The CLI always talks to https://sprrint.run.')
+    if key not in {'project', 'workspace', 'api_key'}:
+        raise typer.BadParameter('Use project, workspace, or api_key. The CLI always talks to https://sprrint.run.')
     settings = update(**{key: value})
     console.print(f'{key} = {getattr(settings, key)}')
 

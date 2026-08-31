@@ -31,6 +31,8 @@ class Client:
         if auth:
             require_key(self.settings)
             headers['Authorization'] = f'Bearer {self.settings.api_key}'
+        if self.settings.workspace:
+            headers['X-Workspace-Slug'] = self.settings.workspace
         return headers
 
     def _request(self, method: str, path: str, *, auth=True, json=None, files=None, params=None):
@@ -52,16 +54,20 @@ class Client:
         if response.status_code == 401:
             raise AuthError(payload.get('error') or 'That API key is not valid.')
         if not payload.get('ok', response.is_success):
+            extra = {key: value for key, value in payload.items() if key not in {'ok', 'error', 'code'}}
             raise SprrintError(
                 payload.get('error') or 'Request failed.',
                 status=response.status_code,
                 code=payload.get('code'),
+                extra=extra,
             )
         if not response.is_success:
+            extra = {key: value for key, value in payload.items() if key not in {'ok', 'error', 'code'}}
             raise SprrintError(
                 payload.get('error') or f'Request failed ({response.status_code}).',
                 status=response.status_code,
                 code=payload.get('code'),
+                extra=extra,
             )
         return payload.get('data', payload)
 
@@ -124,6 +130,12 @@ class Client:
 
     def revoke_key(self, key_id: int):
         return self.delete(f'/keys/{key_id}')
+
+    def workspaces(self):
+        return self.get('/workspaces')
+
+    def create_workspace(self, **fields):
+        return self.post('/workspaces/create', fields)
 
     def workspace(self):
         return self.get('/workspace')
@@ -205,10 +217,22 @@ class Client:
     def update_task(self, ref: str, key: str, **fields):
         return self.post(f'/projects/{ref}/tasks/{key}/update', fields)
 
-    def move_task(self, ref: str, key: str, status: str, position: float | None = None):
+    def move_task(
+        self,
+        ref: str,
+        key: str,
+        status: str,
+        position: float | None = None,
+        blocked_note: str | None = None,
+        confirm_complete: bool = False,
+    ):
         data: dict[str, Any] = {'status': status}
         if position is not None:
             data['position'] = position
+        if blocked_note is not None:
+            data['blocked_note'] = blocked_note
+        if confirm_complete:
+            data['confirm_complete'] = True
         return self.post(f'/projects/{ref}/tasks/{key}/move', data)
 
     def comment(self, ref: str, key: str, body: str, parent: int | None = None, file_ids=None):
@@ -241,6 +265,15 @@ class Client:
     def update_sprint(self, ref: str, slug: str, **fields):
         return self.post(f'/projects/{ref}/sprints/{slug}/update', fields)
 
+    def start_sprint(self, ref: str, slug: str):
+        return self.update_sprint(ref, slug, status='active')
+
+    def pause_sprint(self, ref: str, slug: str):
+        return self.update_sprint(ref, slug, status='planned')
+
+    def complete_sprint(self, ref: str, slug: str):
+        return self.update_sprint(ref, slug, status='done')
+
     def delete_sprint(self, ref: str, slug: str, move='free'):
         return self.delete(f'/projects/{ref}/sprints/{slug}/delete', {'move': move})
 
@@ -270,6 +303,10 @@ class Client:
                 f'/projects/{ref}/files',
                 files={'file': (upload.name, handle)},
             )
+
+    def resolve_files(self, ref: str, ids: list[int | str]):
+        raw = ','.join(str(item) for item in ids)
+        return self.get(f'/projects/{ref}/files/resolve', ids=raw)
 
     def resolve_project(self, ref: str | None = None) -> str:
         if ref:

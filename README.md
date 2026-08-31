@@ -33,10 +33,11 @@ You can also mint a key in the web app: **You → Keys**, then:
 
 ```bash
 sprrint config set api_key spr_live_…
+sprrint config set workspace acme
 sprrint config set project BR
 ```
 
-Environment variables override the file: `SPRRINT_API_KEY`, `SPRRINT_PROJECT`.
+Environment variables override the file: `SPRRINT_API_KEY`, `SPRRINT_WORKSPACE`, `SPRRINT_PROJECT`.
 
 ## Everyday commands
 
@@ -47,7 +48,11 @@ sprrint overview
 sprrint search "login"
 sprrint tasks create --title "Ship the CLI"
 sprrint tasks move BR-12 progress
+sprrint tasks move BR-12 blocked --blocked-note "Waiting on design"
 sprrint tasks comment BR-12 "Landed."
+sprrint sprints start launch-week
+sprrint sprints pause launch-week
+sprrint sprints complete launch-week
 sprrint sprints create --name "Launch Week" --starts-on 2026-09-01 --ends-on 2026-09-14
 sprrint blackhole list
 sprrint blackhole pull BR-9
@@ -96,11 +101,12 @@ Everything the Sprrint app can do:
 | Area | Commands / tools |
 |---|---|
 | You | login, whoami, me update, emails, keys |
+| Workspaces | list, create, use (`config set workspace`) |
 | Workspace | get, update, invite, roles, leave, delete |
 | Projects | list, create, update, archive, restore, delete, members |
 | Now / Home | `now`, `overview`, project home |
-| Tasks | list, get, create, update, move, comment, attach |
-| Sprints | list, get, create, update, delete |
+| Tasks | list, get, create, update, move, comment, attach (subtasks, blocked notes) |
+| Sprints | list, get, create, update, start, pause, complete, delete |
 | Black Hole | list, pull, drop |
 | Search / Activity | `search`, `activity` |
 | Categories / files | categories, `files` |

@@ -14,8 +14,10 @@ mcp = FastMCP(
     instructions=(
         'Sprrint is a sprint and task workspace. Use these tools the same way a person '
         'uses the Sprrint app: look at Now, create and move tasks, run sprints, pull work '
-        'out of the Black Hole, search, comment, and manage the workspace. '
-        'Identify projects by key (BR) or slug. Identify tasks by key (BR-12).'
+        'out of the Black Hole, search, comment, and manage workspaces and projects. '
+        'Set SPRRINT_WORKSPACE or config workspace to target a specific workspace. '
+        'Identify projects by key (BR) or slug. Identify tasks by key (BR-12). '
+        'Moving to blocked requires blocked_note. Completing a parent with open subtasks needs confirm_complete.'
     ),
 )
 
@@ -32,7 +34,9 @@ def _call(fn):
     try:
         return fn()
     except SprrintError as exc:
-        return {'ok': False, 'error': exc.message, 'code': exc.code}
+        payload = {'ok': False, 'error': exc.message, 'code': exc.code}
+        payload.update(exc.extra)
+        return payload
 
 
 @mcp.tool()
@@ -83,6 +87,25 @@ def sprrint_activity(
     if q:
         params['q'] = q
     return _call(lambda: _client().activity(project, **params))
+
+
+@mcp.tool()
+def sprrint_workspaces_list() -> dict:
+    """List workspaces you belong to."""
+    return _call(lambda: _client().workspaces())
+
+
+@mcp.tool()
+def sprrint_workspaces_create(
+    name: str,
+    slug: Optional[str] = None,
+    description: str = '',
+) -> dict:
+    """Create a workspace and switch into it on the server."""
+    fields = {'name': name, 'description': description}
+    if slug:
+        fields['slug'] = slug
+    return _call(lambda: _client().create_workspace(**fields))
 
 
 @mcp.tool()
@@ -197,6 +220,8 @@ def sprrint_tasks_create(
     assignee: Optional[str] = None,
     due_on: Optional[str] = None,
     category: Optional[str] = None,
+    parent: Optional[str] = None,
+    blocked_note: Optional[str] = None,
     tags: Optional[str] = None,
 ) -> dict:
     """Create a task. status is todo|progress|blocked|done. priority is none|low|medium|high. assignee and tags are comma-separated."""
@@ -209,6 +234,10 @@ def sprrint_tasks_create(
         fields['due_on'] = due_on
     if category:
         fields['category'] = category
+    if parent is not None:
+        fields['parent'] = parent
+    if blocked_note is not None:
+        fields['blocked_note'] = blocked_note
     if tags:
         fields['tags'] = [part.strip() for part in tags.split(',') if part.strip()]
     return _call(lambda: _client().create_task(_project(project), **fields))
@@ -226,6 +255,8 @@ def sprrint_tasks_update(
     assignee: Optional[str] = None,
     due_on: Optional[str] = None,
     category: Optional[str] = None,
+    parent: Optional[str] = None,
+    blocked_note: Optional[str] = None,
     tags: Optional[str] = None,
 ) -> dict:
     """Update a task. Pass only the fields that should change; others stay as they are."""
@@ -256,15 +287,35 @@ def sprrint_tasks_update(
         fields['category'] = category
     elif current.get('category'):
         fields['category'] = current['category']['slug']
+    if parent is not None:
+        fields['parent'] = parent
+    elif current.get('parent'):
+        fields['parent'] = current['parent']['key']
+    if blocked_note is not None:
+        fields['blocked_note'] = blocked_note
+    elif current.get('blocked_note'):
+        fields['blocked_note'] = current['blocked_note']
     if tags is not None:
         fields['tags'] = [part.strip() for part in tags.split(',') if part.strip()]
     return _call(lambda: api.update_task(ref, key, **fields))
 
 
 @mcp.tool()
-def sprrint_tasks_move(key: str, status: str, project: Optional[str] = None) -> dict:
-    """Move a task to todo, progress, blocked, or done."""
-    return _call(lambda: _client().move_task(_project(project), key, status))
+def sprrint_tasks_move(
+    key: str,
+    status: str,
+    project: Optional[str] = None,
+    blocked_note: Optional[str] = None,
+    confirm_complete: bool = False,
+) -> dict:
+    """Move a task to todo, progress, blocked, or done. blocked needs blocked_note. done may need confirm_complete when subtasks remain."""
+    return _call(lambda: _client().move_task(
+        _project(project),
+        key,
+        status,
+        blocked_note=blocked_note,
+        confirm_complete=confirm_complete,
+    ))
 
 
 @mcp.tool()
@@ -320,6 +371,24 @@ def sprrint_sprints_update(
         'name': name, 'goal': goal, 'starts_on': starts_on, 'ends_on': ends_on, 'status': status,
     }.items() if v is not None}
     return _call(lambda: _client().update_sprint(_project(project), slug, **fields))
+
+
+@mcp.tool()
+def sprrint_sprints_start(slug: str, project: Optional[str] = None) -> dict:
+    """Start a planned sprint."""
+    return _call(lambda: _client().start_sprint(_project(project), slug))
+
+
+@mcp.tool()
+def sprrint_sprints_pause(slug: str, project: Optional[str] = None) -> dict:
+    """Pause an active sprint back to planned."""
+    return _call(lambda: _client().pause_sprint(_project(project), slug))
+
+
+@mcp.tool()
+def sprrint_sprints_complete(slug: str, project: Optional[str] = None) -> dict:
+    """Mark an active sprint done."""
+    return _call(lambda: _client().complete_sprint(_project(project), slug))
 
 
 @mcp.tool()

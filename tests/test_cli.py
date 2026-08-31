@@ -13,6 +13,7 @@ def test_help():
     assert 'now' in result.stdout
     assert 'tasks' in result.stdout
     assert 'blackhole' in result.stdout
+    assert 'workspaces' in result.stdout
     assert 'mcp' in result.stdout
 
 
@@ -75,3 +76,30 @@ def test_config_set_rejects_api_url(monkeypatch, tmp_path):
     result = runner.invoke(app, ['config', 'set', 'api_url', 'http://localhost:8000'])
     assert result.exit_code != 0
     assert 'sprrint.run' in result.stdout or 'sprrint.run' in result.stderr
+
+
+def test_workspaces_use(monkeypatch, tmp_path):
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    result = runner.invoke(app, ['workspaces', 'use', 'acme', '--plain'])
+    assert result.exit_code == 0
+    assert 'acme' in result.stdout
+
+
+def test_tasks_move_blocked_note(monkeypatch, tmp_path, httpx_mock):
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
+    httpx_mock.add_response(
+        method='POST',
+        url='https://sprrint.run/api/v1/projects/BR/tasks/BR-12/move',
+        status_code=409,
+        json={
+            'ok': False,
+            'needs_block_note': True,
+            'key': 'BR-12',
+            'title': 'Blocked task',
+            'blocked_note': '',
+        },
+    )
+    result = runner.invoke(app, ['tasks', 'move', 'BR-12', 'blocked', '--plain'])
+    assert result.exit_code == 1
+    assert 'blocked note' in result.stdout.lower() or 'blocked note' in result.stderr.lower()

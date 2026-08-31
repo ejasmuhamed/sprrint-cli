@@ -1,6 +1,7 @@
 from sprrint.client import Client
 from sprrint.config import SITE_URL, Settings, load, save
 from sprrint.errors import AuthError, SprrintError
+import httpx
 
 
 def test_requires_key(monkeypatch, tmp_path):
@@ -62,6 +63,30 @@ def test_create_task_posts_json(httpx_mock):
     client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok'))
     task = client.create_task('BR', title='Ship it')
     assert task['key'] == 'BR-1'
+
+
+def test_workspace_header(httpx_mock):
+    def check(request):
+        assert request.headers['X-Workspace-Slug'] == 'acme'
+        return httpx.Response(200, json={'ok': True, 'data': []})
+
+    httpx_mock.add_callback(check, url='https://sprrint.run/api/v1/projects')
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', workspace='acme'))
+    assert client.projects() == []
+
+
+def test_move_task_blocked_note(httpx_mock):
+    seen = {}
+
+    def responder(request):
+        seen['body'] = request.content.decode()
+        return httpx.Response(200, json={'ok': True, 'data': {'key': 'BR-2', 'status': 'blocked'}})
+
+    httpx_mock.add_callback(responder, method='POST', url='https://sprrint.run/api/v1/projects/BR/tasks/BR-2/move')
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok'))
+    task = client.move_task('BR', 'BR-2', 'blocked', blocked_note='Waiting on API')
+    assert task['status'] == 'blocked'
+    assert 'Waiting on API' in seen['body']
 
 
 def test_server_error(httpx_mock):

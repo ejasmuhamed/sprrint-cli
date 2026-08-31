@@ -32,6 +32,7 @@ def config_path() -> Path:
 class Settings:
     api_url: str = SITE_URL
     api_key: str = ''
+    workspace: str = ''
     project: str = ''
 
     def host(self) -> str:
@@ -46,6 +47,7 @@ def load() -> Settings:
     return Settings(
         api_url=SITE_URL,
         api_key=os.environ.get('SPRRINT_API_KEY') or data.get('api_key') or '',
+        workspace=os.environ.get('SPRRINT_WORKSPACE') or data.get('workspace') or '',
         project=os.environ.get('SPRRINT_PROJECT') or data.get('project') or '',
     )
 
