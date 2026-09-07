@@ -98,11 +98,10 @@ def event_table(events):
 def member_table(members):
     table = Table(title='People', expand=True)
     table.add_column('Name')
-    table.add_column('Username', style='cyan')
     table.add_column('Role')
     for item in members:
         user = item.get('user') or item
-        table.add_row(user.get('display_name'), f"@{user.get('username')}", item.get('role') or '')
+        table.add_row(user.get('display_name'), item.get('role') or '')
     return table
 
 
