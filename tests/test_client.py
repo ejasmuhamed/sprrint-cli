@@ -65,6 +65,43 @@ def test_create_task_posts_json(httpx_mock):
     assert task['key'] == 'BR-1'
 
 
+def test_create_release_posts_selected_tasks(httpx_mock):
+    seen = {}
+
+    def responder(request):
+        seen['body'] = request.content.decode()
+        return httpx.Response(
+            201,
+            json={'ok': True, 'data': {'slug': '1-0', 'name': '1.0', 'selected_tasks': [{'key': 'BR-1'}]}},
+        )
+
+    httpx_mock.add_callback(
+        responder,
+        method='POST',
+        url='https://sprrint.run/api/v1/projects/BR/releases/create',
+    )
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok'))
+    release = client.create_release(
+        'BR',
+        name='1.0',
+        version='v1.0',
+        selected_tasks=['BR-1'],
+        selected_sprints=['launch-week'],
+    )
+    assert release['slug'] == '1-0'
+    assert 'BR-1' in seen['body']
+    assert 'launch-week' in seen['body']
+
+
+def test_releases_list(httpx_mock):
+    httpx_mock.add_response(
+        url='https://sprrint.run/api/v1/projects/BR/releases',
+        json={'ok': True, 'data': [{'slug': '1-0', 'name': '1.0', 'status': 'upcoming'}]},
+    )
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok'))
+    assert client.releases('BR')[0]['slug'] == '1-0'
+
+
 def test_workspace_header(httpx_mock):
     def check(request):
         assert request.headers['X-Workspace-Slug'] == 'acme'

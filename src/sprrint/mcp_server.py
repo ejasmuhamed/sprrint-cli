@@ -12,11 +12,13 @@ from sprrint.errors import SprrintError
 mcp = FastMCP(
     'sprrint',
     instructions=(
-        'Sprrint is a sprint and task workspace. Use these tools the same way a person '
-        'uses the Sprrint app: look at Now, create and move tasks, run sprints, pull work '
-        'out of the Black Hole, search, comment, and manage workspaces and projects. '
+        'Sprrint is a sprint, release, and task workspace. Use these tools the same way a person '
+        'uses the Sprrint app: look at Now, create and move tasks, run sprints, plan releases, '
+        'pull work out of the Black Hole, search, comment, and manage workspaces and projects. '
         'Set SPRRINT_WORKSPACE or config workspace to target a specific workspace. '
         'Identify projects by key (BR) or slug. Identify tasks by key (BR-12). '
+        'Releases group tasks (not sprints); selected_sprints on create/update expand to tasks. '
+        'Task payloads may include releases: [{id, slug, name, version, status}]. '
         'Moving to blocked requires blocked_note. Completing a parent with open subtasks needs confirm_complete.'
     ),
 )
@@ -72,13 +74,13 @@ def sprrint_search(q: str, project: Optional[str] = None) -> dict:
 @mcp.tool()
 def sprrint_activity(
     project: Optional[str] = None,
-    tab: str = 'all',
+    tab: str = 'history',
     range: str = '7',
     actor: Optional[str] = None,
     type: Optional[str] = None,
     q: Optional[str] = None,
 ) -> dict:
-    """Activity feed. tab is you|all. range is 0 (today), 7, 30, or all."""
+    """Activity feed. tab is you|history (all still accepted as history). range is 0 (today), 7, 30, or all."""
     params = {'tab': tab, 'range': range}
     if actor:
         params['actor'] = actor
@@ -205,7 +207,7 @@ def sprrint_tasks_list(
 
 @mcp.tool()
 def sprrint_tasks_get(key: str, project: Optional[str] = None) -> dict:
-    """Get a task by key (BR-12), including comments and attachments."""
+    """Get a task by key (BR-12), including comments, attachments, and releases [{id, slug, name, version, status}]."""
     return _call(lambda: _client().task(_project(project), key))
 
 
@@ -298,6 +300,12 @@ def sprrint_tasks_update(
     if tags is not None:
         fields['tags'] = [part.strip() for part in tags.split(',') if part.strip()]
     return _call(lambda: api.update_task(ref, key, **fields))
+
+
+@mcp.tool()
+def sprrint_tasks_delete(key: str, project: Optional[str] = None) -> dict:
+    """Permanently delete a task. Subtasks become top-level."""
+    return _call(lambda: _client().delete_task(_project(project), key))
 
 
 @mcp.tool()
@@ -395,6 +403,77 @@ def sprrint_sprints_complete(slug: str, project: Optional[str] = None) -> dict:
 def sprrint_sprints_delete(slug: str, project: Optional[str] = None, move: str = 'free') -> dict:
     """Delete a sprint. move=free sends remaining tasks to the Black Hole."""
     return _call(lambda: _client().delete_sprint(_project(project), slug, move))
+
+
+@mcp.tool()
+def sprrint_releases_list(project: Optional[str] = None, status: Optional[str] = None) -> dict:
+    """List releases. status is upcoming|live|past. Membership is tasks (selected_tasks), not sprints."""
+    return _call(lambda: _client().releases(_project(project), status))
+
+
+@mcp.tool()
+def sprrint_releases_get(slug: str, project: Optional[str] = None) -> dict:
+    """Get a release and its selected tasks."""
+    return _call(lambda: _client().release(_project(project), slug))
+
+
+@mcp.tool()
+def sprrint_releases_create(
+    name: str,
+    project: Optional[str] = None,
+    version: str = '',
+    description: str = '',
+    status: str = 'upcoming',
+    target_on: Optional[str] = None,
+    environments: Optional[str] = None,
+    owner: Optional[str] = None,
+    tasks: Optional[str] = None,
+    sprints: Optional[str] = None,
+) -> dict:
+    """Create a release. target_on is YYYY-MM-DD. environments is comma-separated env slugs/ids (each creates its own release page). tasks is comma-separated task ids/keys. sprints is comma-separated sprint slugs/ids that expand to tasks server-side."""
+    fields = {'name': name, 'version': version, 'description': description, 'status': status}
+    if target_on:
+        fields['target_on'] = target_on
+    if environments:
+        fields['environments'] = [part.strip() for part in environments.split(',') if part.strip()]
+    if owner:
+        fields['owner'] = owner
+    if tasks:
+        fields['selected_tasks'] = [part.strip() for part in tasks.split(',') if part.strip()]
+    if sprints:
+        fields['selected_sprints'] = [part.strip() for part in sprints.split(',') if part.strip()]
+    return _call(lambda: _client().create_release(_project(project), **fields))
+
+
+@mcp.tool()
+def sprrint_releases_update(
+    slug: str,
+    project: Optional[str] = None,
+    name: Optional[str] = None,
+    version: Optional[str] = None,
+    description: Optional[str] = None,
+    status: Optional[str] = None,
+    target_on: Optional[str] = None,
+    environment: Optional[str] = None,
+    owner: Optional[str] = None,
+    tasks: Optional[str] = None,
+    sprints: Optional[str] = None,
+) -> dict:
+    """Update a release. Pass tasks/sprints to replace membership; sprints expand to tasks server-side."""
+    fields = {k: v for k, v in {
+        'name': name,
+        'version': version,
+        'description': description,
+        'status': status,
+        'target_on': target_on,
+        'environment': environment,
+        'owner': owner,
+    }.items() if v is not None}
+    if tasks is not None:
+        fields['selected_tasks'] = [part.strip() for part in tasks.split(',') if part.strip()]
+    if sprints is not None:
+        fields['selected_sprints'] = [part.strip() for part in sprints.split(',') if part.strip()]
+    return _call(lambda: _client().update_release(_project(project), slug, **fields))
 
 
 @mcp.tool()

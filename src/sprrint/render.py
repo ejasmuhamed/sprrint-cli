@@ -63,6 +63,27 @@ def sprint_table(sprints):
     return table
 
 
+def release_table(releases):
+    table = Table(title='Releases', expand=True)
+    table.add_column('Slug', style='cyan')
+    table.add_column('Name')
+    table.add_column('Version')
+    table.add_column('Status')
+    table.add_column('Target')
+    table.add_column('Tasks')
+    for release in releases:
+        tasks = release.get('selected_tasks') or release.get('tasks') or []
+        table.add_row(
+            release.get('slug'),
+            release.get('name'),
+            release.get('version') or '',
+            release.get('status'),
+            release.get('target_on') or '',
+            str(len(tasks)),
+        )
+    return table
+
+
 def event_table(events):
     table = Table(title='Activity', expand=True)
     table.add_column('When', no_wrap=True)

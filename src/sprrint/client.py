@@ -217,6 +217,9 @@ class Client:
     def update_task(self, ref: str, key: str, **fields):
         return self.post(f'/projects/{ref}/tasks/{key}/update', fields)
 
+    def delete_task(self, ref: str, key: str):
+        return self.delete(f'/projects/{ref}/tasks/{key}/delete')
+
     def move_task(
         self,
         ref: str,
@@ -276,6 +279,19 @@ class Client:
 
     def delete_sprint(self, ref: str, slug: str, move='free'):
         return self.delete(f'/projects/{ref}/sprints/{slug}/delete', {'move': move})
+
+    def releases(self, ref: str, status: str | None = None):
+        params = {'status': status} if status else {}
+        return self.get(f'/projects/{ref}/releases', **params)
+
+    def create_release(self, ref: str, **fields):
+        return self.post(f'/projects/{ref}/releases/create', fields)
+
+    def release(self, ref: str, slug: str):
+        return self.get(f'/projects/{ref}/releases/{slug}')
+
+    def update_release(self, ref: str, slug: str, **fields):
+        return self.post(f'/projects/{ref}/releases/{slug}/update', fields)
 
     def blackhole(self, ref: str):
         return self.get(f'/projects/{ref}/blackhole')

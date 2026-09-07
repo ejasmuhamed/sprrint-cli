@@ -9,4 +9,8 @@ def test_mcp_server_loads():
     assert 'sprrint_tasks_create' in names
     assert 'sprrint_blackhole_pull' in names
     assert 'sprrint_workspace_invite' in names
+    assert 'sprrint_releases_list' in names
+    assert 'sprrint_releases_create' in names
+    assert 'sprrint_releases_get' in names
+    assert 'sprrint_releases_update' in names
     assert len(names) >= 30

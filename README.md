@@ -2,7 +2,7 @@
 
 The same Sprrint product, from a terminal or an agent.
 
-People who never open the web app can still run the board, write tasks, move cards, run sprints, pull work out of the Black Hole, comment, invite teammates, and manage the workspace.
+People who never open the web app can still run the board, write tasks, move cards, run sprints, plan releases, pull work out of the Black Hole, comment, invite teammates, and manage the workspace.
 
 ```
   o
@@ -54,6 +54,9 @@ sprrint sprints start launch-week
 sprrint sprints pause launch-week
 sprrint sprints complete launch-week
 sprrint sprints create --name "Launch Week" --starts-on 2026-09-01 --ends-on 2026-09-14
+sprrint releases list
+sprrint releases create --name "1.0" --version v1.0 --task BR-12 --task BR-13 --sprint launch-week
+sprrint releases update 1-0 --status live
 sprrint blackhole list
 sprrint blackhole pull BR-9
 sprrint activity
@@ -107,6 +110,7 @@ Everything the Sprrint app can do:
 | Now / Home | `now`, `overview`, project home |
 | Tasks | list, get, create, update, move, comment, attach (subtasks, blocked notes) |
 | Sprints | list, get, create, update, start, pause, complete, delete |
+| Releases | list, get, create, update (task membership; optional sprint expand) |
 | Black Hole | list, pull, drop |
 | Search / Activity | `search`, `activity` |
 | Categories / files | categories, `files` |

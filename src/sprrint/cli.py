@@ -11,7 +11,7 @@ from sprrint import __version__
 from sprrint.client import Client
 from sprrint.config import config_path, load, save, update
 from sprrint.errors import AuthError, SprrintError
-from sprrint.render import event_table, member_table, now_panel, project_table, sprint_table, task_table
+from sprrint.render import event_table, member_table, now_panel, project_table, release_table, sprint_table, task_table
 from sprrint import stickman
 
 app = typer.Typer(
@@ -23,6 +23,7 @@ app = typer.Typer(
 projects_app = typer.Typer(help='Projects')
 tasks_app = typer.Typer(help='Tasks')
 sprints_app = typer.Typer(help='Sprints')
+releases_app = typer.Typer(help='Releases')
 blackhole_app = typer.Typer(help='Black Hole')
 workspace_app = typer.Typer(help='Workspace')
 workspaces_app = typer.Typer(help='Workspaces')
@@ -34,6 +35,7 @@ categories_app = typer.Typer(help='Categories')
 app.add_typer(projects_app, name='projects')
 app.add_typer(tasks_app, name='tasks')
 app.add_typer(sprints_app, name='sprints')
+app.add_typer(releases_app, name='releases')
 app.add_typer(blackhole_app, name='blackhole')
 app.add_typer(workspace_app, name='workspace')
 app.add_typer(workspaces_app, name='workspaces')
@@ -212,12 +214,12 @@ def search(
 @app.command()
 def activity(
     project: Optional[str] = typer.Option(None, '--project', '-p'),
-    tab: str = typer.Option('all'),
+    tab: str = typer.Option('history'),
     range: str = typer.Option('7', '--range'),
     json_mode: bool = typer.Option(False, '--json'),
     plain: bool = typer.Option(False, '--plain'),
 ):
-    """Activity feed."""
+    """Activity feed. tab is you|history (all still accepted as history)."""
     api = client()
     ref = project or api.settings.project or None
     data = run('read', 'Reading the diary', lambda: api.activity(ref, tab=tab, range=range), plain=plain)
@@ -469,6 +471,22 @@ def tasks_update(
     out(data, json_mode, win='Saved.', plain=plain)
 
 
+@tasks_app.command('delete')
+def tasks_delete(
+    key: str,
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    yes: bool = typer.Option(False, '--yes', '-y', help='Skip confirmation'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    if not yes and not json_mode:
+        typer.confirm(f'Delete {key} permanently?', abort=True)
+    data = run('save', f'Deleting {key}', lambda: api.delete_task(ref, key), plain=plain)
+    out(data, json_mode, win=f'{key} deleted.', plain=plain)
+
+
 @tasks_app.command('move')
 def tasks_move(
     key: str,
@@ -645,6 +663,125 @@ def sprints_delete(
     ref = api.resolve_project(project)
     data = run('save', f'Deleting {slug}', lambda: api.delete_sprint(ref, slug, move), plain=plain)
     out(data, json_mode, win='Sprint is gone. Work is in Free-fly.', plain=plain)
+
+
+@releases_app.command('list')
+def releases_list(
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    status: Optional[str] = None,
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    data = run('read', 'Listing releases', lambda: api.releases(ref, status), plain=plain)
+    out(data, json_mode, None if json_mode else release_table(data))
+
+
+@releases_app.command('get')
+def releases_get(
+    slug: str,
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    data = run('read', f'Reading {slug}', lambda: api.release(ref, slug), plain=plain)
+    if json_mode:
+        out(data, True)
+        return
+    version = data.get('version') or ''
+    target = data.get('target_on') or ''
+    console.print(f"{data.get('name')}  {version}  {data.get('status')}  {target}".rstrip())
+    tasks = data.get('selected_tasks') or data.get('tasks') or []
+    console.print(task_table(tasks))
+
+
+@releases_app.command('create')
+def releases_create(
+    name: str = typer.Option(...),
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    version: str = typer.Option(''),
+    description: str = typer.Option(''),
+    status: str = typer.Option('upcoming'),
+    target_on: Optional[str] = typer.Option(None, help='Target date YYYY-MM-DD.'),
+    environment: Optional[list[str]] = typer.Option(
+        None,
+        '--environment',
+        help='Environment slug/id. Repeatable; each creates its own release page.',
+    ),
+    owner: Optional[str] = None,
+    task: Optional[list[str]] = typer.Option(None, '--task', help='Task id or key to include. Repeatable.'),
+    sprint: Optional[list[str]] = typer.Option(None, '--sprint', help='Sprint slug/id; expands to tasks server-side. Repeatable.'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    fields = {
+        'name': name,
+        'version': version,
+        'description': description,
+        'status': status,
+    }
+    if target_on:
+        fields['target_on'] = target_on
+    if environment:
+        fields['environments'] = environment
+    if owner:
+        fields['owner'] = owner
+    if task:
+        fields['selected_tasks'] = task
+    if sprint:
+        fields['selected_sprints'] = sprint
+    data = run('save', f'Opening {name}', lambda: api.create_release(ref, **fields), plain=plain)
+    if json_mode:
+        out(data, True)
+        return
+    created = data.get('created_count') or 1
+    if created > 1:
+        console.print(f"Created {created} releases for {data.get('name')}")
+        for item in data.get('releases') or [data]:
+            env = (item.get('environment') or {}).get('name') or 'No environment'
+            console.print(f"  {item.get('slug')} · {env}")
+        return
+    out(data, False, win=f"{data.get('name')} is on the roadmap.", plain=plain)
+
+
+@releases_app.command('update')
+def releases_update(
+    slug: str,
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    name: Optional[str] = None,
+    version: Optional[str] = None,
+    description: Optional[str] = None,
+    status: Optional[str] = None,
+    target_on: Optional[str] = typer.Option(None, help='Target date YYYY-MM-DD.'),
+    environment: Optional[str] = None,
+    owner: Optional[str] = None,
+    task: Optional[list[str]] = typer.Option(None, '--task', help='Replace selected tasks with these ids/keys. Repeatable.'),
+    sprint: Optional[list[str]] = typer.Option(None, '--sprint', help='Sprints whose tasks to include. Repeatable.'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    fields = {k: v for k, v in {
+        'name': name,
+        'version': version,
+        'description': description,
+        'status': status,
+        'target_on': target_on,
+        'environment': environment,
+        'owner': owner,
+    }.items() if v is not None}
+    if task is not None:
+        fields['selected_tasks'] = task
+    if sprint is not None:
+        fields['selected_sprints'] = sprint
+    data = run('save', f'Saving {slug}', lambda: api.update_release(ref, slug, **fields), plain=plain)
+    out(data, json_mode, win='Release saved.', plain=plain)
 
 
 @blackhole_app.command('list')

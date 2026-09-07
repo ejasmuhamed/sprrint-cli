@@ -1,5 +1,7 @@
 from typer.testing import CliRunner
 
+import httpx
+
 from sprrint.cli import app
 from sprrint.config import Settings, save
 
@@ -14,6 +16,7 @@ def test_help():
     assert 'tasks' in result.stdout
     assert 'blackhole' in result.stdout
     assert 'workspaces' in result.stdout
+    assert 'releases' in result.stdout
     assert 'mcp' in result.stdout
 
 
@@ -43,6 +46,41 @@ def test_tasks_create(monkeypatch, tmp_path, httpx_mock):
     result = runner.invoke(app, ['tasks', 'create', '--title', 'From CLI', '--plain', '--json'])
     assert result.exit_code == 0
     assert 'BR-12' in result.stdout
+
+
+def test_releases_create(monkeypatch, tmp_path, httpx_mock):
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
+    seen = {}
+
+    def responder(request):
+        seen['body'] = request.content.decode()
+        return httpx.Response(
+            201,
+            json={'ok': True, 'data': {'slug': '1-0', 'name': '1.0', 'status': 'upcoming'}},
+        )
+
+    httpx_mock.add_callback(
+        responder,
+        method='POST',
+        url='https://sprrint.run/api/v1/projects/BR/releases/create',
+    )
+    result = runner.invoke(
+        app,
+        [
+            'releases', 'create',
+            '--name', '1.0',
+            '--version', 'v1.0',
+            '--task', 'BR-12',
+            '--sprint', 'launch-week',
+            '--plain',
+            '--json',
+        ],
+    )
+    assert result.exit_code == 0
+    assert '1-0' in result.stdout
+    assert 'BR-12' in seen['body']
+    assert 'launch-week' in seen['body']
 
 
 def test_blackhole_pull(monkeypatch, tmp_path, httpx_mock):
