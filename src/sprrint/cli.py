@@ -693,16 +693,19 @@ def releases_get(
         return
     version = data.get('version') or ''
     target = data.get('target_on') or ''
-    console.print(f"{data.get('name')}  {version}  {data.get('status')}  {target}".rstrip())
+    env = data.get('environment') or {}
+    env_label = env.get('name') if isinstance(env, dict) else ''
+    label = data.get('label') or ' · '.join(filter(None, [version, env_label, data.get('name') or '']))
+    console.print(f"{label}  {data.get('status')}  {target}".rstrip())
     tasks = data.get('selected_tasks') or data.get('tasks') or []
     console.print(task_table(tasks))
 
 
 @releases_app.command('create')
 def releases_create(
-    name: str = typer.Option(...),
+    name: str = typer.Option('', '--name', help='Optional nickname for the release.'),
     project: Optional[str] = typer.Option(None, '--project', '-p'),
-    version: str = typer.Option(''),
+    version: str = typer.Option('', '--version', help='Version number (e.g. v1.0).'),
     description: str = typer.Option(''),
     status: str = typer.Option('upcoming'),
     target_on: Optional[str] = typer.Option(None, help='Target date YYYY-MM-DD.'),

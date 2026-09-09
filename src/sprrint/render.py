@@ -66,17 +66,21 @@ def sprint_table(sprints):
 def release_table(releases):
     table = Table(title='Releases', expand=True)
     table.add_column('Slug', style='cyan')
-    table.add_column('Name')
     table.add_column('Version')
+    table.add_column('Environment')
+    table.add_column('Name')
     table.add_column('Status')
     table.add_column('Target')
     table.add_column('Tasks')
     for release in releases:
         tasks = release.get('selected_tasks') or release.get('tasks') or []
+        env = release.get('environment') or {}
+        env_label = env.get('name') if isinstance(env, dict) else (env or '')
         table.add_row(
             release.get('slug'),
-            release.get('name'),
             release.get('version') or '',
+            env_label or '',
+            release.get('name') or '',
             release.get('status'),
             release.get('target_on') or '',
             str(len(tasks)),

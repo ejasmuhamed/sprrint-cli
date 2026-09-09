@@ -419,7 +419,7 @@ def sprrint_releases_get(slug: str, project: Optional[str] = None) -> dict:
 
 @mcp.tool()
 def sprrint_releases_create(
-    name: str,
+    name: str = '',
     project: Optional[str] = None,
     version: str = '',
     description: str = '',
@@ -430,7 +430,7 @@ def sprrint_releases_create(
     tasks: Optional[str] = None,
     sprints: Optional[str] = None,
 ) -> dict:
-    """Create a release. target_on is YYYY-MM-DD. environments is comma-separated env slugs/ids (each creates its own release page). tasks is comma-separated task ids/keys. sprints is comma-separated sprint slugs/ids that expand to tasks server-side."""
+    """Create a release. name is optional; version and environments are the primary identity. target_on is YYYY-MM-DD. environments is comma-separated env slugs/ids (each creates its own release page). tasks is comma-separated task ids/keys. sprints is comma-separated sprint slugs/ids that expand to tasks server-side."""
     fields = {'name': name, 'version': version, 'description': description, 'status': status}
     if target_on:
         fields['target_on'] = target_on
