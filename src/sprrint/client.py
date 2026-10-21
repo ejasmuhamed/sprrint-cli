@@ -320,6 +320,18 @@ class Client:
                 files={'file': (upload.name, handle)},
             )
 
+    def upload_bytes(self, ref: str, filename: str, content: bytes, content_type: str | None = None):
+        """Upload file bytes. The caller supplies the bytes; this does not open a local path."""
+        name = (filename or '').strip()
+        if not name or name in {'.', '..'} or '/' in name or '\\' in name:
+            raise SprrintError('filename is required.', code='invalid')
+        file_tuple = (name, content, content_type) if content_type else (name, content)
+        return self._request(
+            'POST',
+            f'/projects/{ref}/files',
+            files={'file': file_tuple},
+        )
+
     def resolve_files(self, ref: str, ids: list[int | str]):
         raw = ','.join(str(item) for item in ids)
         return self.get(f'/projects/{ref}/files/resolve', ids=raw)

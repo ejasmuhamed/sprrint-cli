@@ -138,3 +138,29 @@ def test_server_error(httpx_mock):
         assert False
     except SprrintError as exc:
         assert exc.status == 404
+
+
+def test_upload_bytes_posts_file_not_a_path(httpx_mock):
+    seen = {}
+
+    def responder(request):
+        seen['type'] = request.headers['content-type']
+        seen['body'] = request.content
+        return httpx.Response(201, json={'ok': True, 'data': {'id': 'file-1', 'name': 'shot.png', 'kind': 'image'}})
+
+    httpx_mock.add_callback(responder, method='POST', url='https://sprrint.run/api/v1/projects/BR/files')
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok'))
+    uploaded = client.upload_bytes('BR', 'shot.png', b'\x89PNG', 'image/png')
+    assert uploaded['id'] == 'file-1'
+    assert seen['type'].startswith('multipart/form-data')
+    assert b'shot.png' in seen['body']
+    assert b'\x89PNG' in seen['body']
+
+
+def test_upload_bytes_rejects_a_path():
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok'))
+    try:
+        client.upload_bytes('BR', '../shot.png', b'abc')
+        assert False
+    except SprrintError as exc:
+        assert exc.code == 'invalid'

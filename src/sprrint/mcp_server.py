@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import re
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
 from sprrint.client import Client
 from sprrint.errors import SprrintError
+
+_MEDIA_RE = re.compile(
+    r'!\[([^\]]*)\]\(media:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)'
+    r'|(?<!!)\[([^\]]+)\]\(media:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)'
+)
+_MAX_UPLOAD = 25 * 1024 * 1024
 
 mcp = FastMCP(
     'sprrint',
@@ -39,6 +48,66 @@ def _call(fn):
         payload = {'ok': False, 'error': exc.message, 'code': exc.code}
         payload.update(exc.extra)
         return payload
+
+
+def _markdown_for(role: str, label: str, file_id: str) -> str:
+    if role == 'image':
+        return f'![{label}](media:{file_id})'
+    return f'[{label}](media:{file_id})'
+
+
+def _description_files(api: Client, ref: str, description: str) -> list:
+    refs = []
+    for match in _MEDIA_RE.finditer(description or ''):
+        if match.group(2):
+            refs.append(('image', match.group(1), match.group(2)))
+        else:
+            refs.append(('file', match.group(3), match.group(4)))
+    if not refs:
+        return []
+    resolved = api.resolve_files(ref, [uid for _, _, uid in refs]) or {}
+    rows = []
+    for role, label, uid in refs:
+        item = resolved.get(uid) or resolved.get(str(uid))
+        markdown = _markdown_for(role, label, uid)
+        if not item:
+            rows.append({'id': uid, 'missing': True, 'role': role, 'label': label, 'markdown': markdown})
+            continue
+        row = dict(item)
+        row['role'] = role
+        row['label'] = label
+        row['markdown'] = markdown
+        row.setdefault('missing', False)
+        rows.append(row)
+    return rows
+
+
+def _with_description_files(api: Client, ref: str, data: dict) -> dict:
+    if not isinstance(data, dict) or 'description_files' in data:
+        return data
+    if 'description' not in data:
+        return data
+    data = dict(data)
+    data['description_files'] = _description_files(api, ref, data.get('description') or '')
+    return data
+
+
+def _decode_upload(filename: str, content_base64: str) -> tuple[str, bytes]:
+    name = (filename or '').strip()
+    if not name or name in {'.', '..'} or '/' in name or '\\' in name:
+        raise SprrintError('filename is required.', code='invalid')
+    if not isinstance(content_base64, str) or not content_base64.strip():
+        raise SprrintError('content_base64 is required. Send the file bytes, not a local path.', code='invalid')
+    compact = ''.join(content_base64.split())
+    if len(compact) > ((_MAX_UPLOAD + 1) * 4 // 3) + 8:
+        raise SprrintError('That file is over 25 MB.', code='invalid')
+    try:
+        raw = base64.b64decode(compact, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise SprrintError('content_base64 is not valid base64.', code='invalid') from exc
+    if len(raw) > _MAX_UPLOAD:
+        raise SprrintError('That file is over 25 MB.', code='invalid')
+    return name, raw
 
 
 @mcp.tool()
@@ -207,8 +276,17 @@ def sprrint_tasks_list(
 
 @mcp.tool()
 def sprrint_tasks_get(key: str, project: Optional[str] = None) -> dict:
-    """Get a task by key (BR-12), including comments, attachments, and releases [{id, slug, name, version, status}]."""
-    return _call(lambda: _client().task(_project(project), key))
+    """Get a task by key (BR-12), including comments, attachments, releases, and description_files.
+
+    description keeps stable media:id tokens. description_files lists each inline file in order
+    with id, name, content_type, kind, size, url, role (image|file), and markdown.
+    The attachments list is separate and does not replace description_files.
+    """
+    def run():
+        api = _client()
+        ref = _project(project)
+        return _with_description_files(api, ref, api.task(ref, key))
+    return _call(run)
 
 
 @mcp.tool()
@@ -226,7 +304,12 @@ def sprrint_tasks_create(
     blocked_note: Optional[str] = None,
     tags: Optional[str] = None,
 ) -> dict:
-    """Create a task. status is todo|progress|blocked|done. priority is none|low|medium|high. assignee and tags are comma-separated."""
+    """Create a task. status is todo|progress|blocked|done. priority is none|low|medium|high. assignee and tags are comma-separated.
+
+    To embed a file, upload it with sprrint_files_upload first, then put the returned markdown
+    in description: ![name](media:id) for an image, [name](media:id) for any other file.
+    Text-only descriptions stay valid. A failed upload does not create the task.
+    """
     fields = {'title': title, 'description': description, 'status': status, 'priority': priority}
     if sprint:
         fields['sprint'] = sprint
@@ -242,7 +325,11 @@ def sprrint_tasks_create(
         fields['blocked_note'] = blocked_note
     if tags:
         fields['tags'] = [part.strip() for part in tags.split(',') if part.strip()]
-    return _call(lambda: _client().create_task(_project(project), **fields))
+    def run():
+        api = _client()
+        ref = _project(project)
+        return _with_description_files(api, ref, api.create_task(ref, **fields))
+    return _call(run)
 
 
 @mcp.tool()
@@ -261,7 +348,12 @@ def sprrint_tasks_update(
     blocked_note: Optional[str] = None,
     tags: Optional[str] = None,
 ) -> dict:
-    """Update a task. Pass only the fields that should change; others stay as they are."""
+    """Update a task. Pass only the fields that should change; others stay as they are.
+
+    When changing description, send the full description. Keep existing ![name](media:id) and
+    [name](media:id) tokens so files stay in place. Insert new markdown from sprrint_files_upload
+    at the position you want. This call does not upload bytes. If it fails, the previous description remains.
+    """
     api = _client()
     ref = _project(project)
     current = api.task(ref, key)
@@ -299,7 +391,7 @@ def sprrint_tasks_update(
         fields['blocked_note'] = current['blocked_note']
     if tags is not None:
         fields['tags'] = [part.strip() for part in tags.split(',') if part.strip()]
-    return _call(lambda: api.update_task(ref, key, **fields))
+    return _call(lambda: _with_description_files(api, ref, api.update_task(ref, key, **fields)))
 
 
 @mcp.tool()
@@ -324,6 +416,46 @@ def sprrint_tasks_move(
         blocked_note=blocked_note,
         confirm_complete=confirm_complete,
     ))
+
+
+@mcp.tool()
+def sprrint_files_upload(
+    filename: str,
+    content_base64: str,
+    project: Optional[str] = None,
+    content_type: Optional[str] = None,
+) -> dict:
+    """Upload a file for a task description. Send the bytes as base64. Do not send a local filesystem path.
+
+    Returns id, name, content_type, kind, size, url, role, and markdown.
+    Images: insert markdown ![name](media:id). Other files: [name](media:id).
+    Then call sprrint_tasks_create or sprrint_tasks_update with that markdown in description.
+
+    New task: create the task (text is fine), upload, then update the description.
+    Existing task: upload, then update with the previous description plus the new markdown in place.
+    Multiple files: upload each, then put the markdown snippets in the order they should appear.
+
+    Limits match the web app: 25 MB. Types: png, jpeg, gif, webp, mp4, webm, quicktime, pdf, txt, md, doc, docx.
+    A failed upload writes nothing and does not change a description. Retry the upload, or reuse a returned id
+    if only the description update failed. Unused uploads stay in the project library until someone deletes them.
+    This tool does not delete them, so a retry cannot remove a file the description still needs.
+    """
+    def run():
+        name, raw = _decode_upload(filename, content_base64)
+        api = _client()
+        ref = _project(project)
+        payload = api.upload_bytes(ref, name, raw, content_type or None)
+        file_id = str(payload.get('id') or '')
+        label = payload.get('label') or payload.get('name') or name
+        if payload.get('kind') == 'image' or (content_type or '').startswith('image/'):
+            role = 'image'
+        else:
+            role = 'file'
+        payload['role'] = role
+        payload['label'] = label
+        payload['markdown'] = payload.get('markdown') or _markdown_for(role, label, file_id)
+        return payload
+    return _call(run)
 
 
 @mcp.tool()

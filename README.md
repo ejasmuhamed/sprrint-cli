@@ -109,6 +109,7 @@ Everything the Sprrint app can do:
 | Projects | list, create, update, archive, restore, delete, members |
 | Now / Home | `now`, `overview`, project home |
 | Tasks | list, get, create, update, move, comment, attach (subtasks, blocked notes) |
+| Description files | `sprrint_files_upload` (base64), then `![name](media:id)` or `[name](media:id)` in the description |
 | Sprints | list, get, create, update, start, pause, complete, delete |
 | Releases | list, get, create, update (task membership; optional sprint expand) |
 | Black Hole | list, pull, drop |
