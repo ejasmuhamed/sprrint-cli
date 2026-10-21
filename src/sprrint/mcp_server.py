@@ -199,7 +199,7 @@ def sprrint_projects_create(
     visibility: str = 'private',
     default_view: str = 'now',
 ) -> dict:
-    """Create a project. Key is 1–3 letters. visibility is private|workspace."""
+    """Create a project. Key is 2–4 letters, unique in the workspace, and stays fixed. visibility is private|workspace."""
     fields = {'name': name, 'description': description, 'visibility': visibility, 'default_view': default_view}
     if key:
         fields['key'] = key
