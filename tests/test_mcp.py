@@ -1,8 +1,9 @@
 import base64
+import json
 
 import httpx
 
-from sprrint.mcp_server import _decode_upload, mcp, sprrint_files_upload, sprrint_tasks_get
+from sprrint.mcp_server import _decode_upload, mcp, sprrint_files_upload, sprrint_tasks_comment, sprrint_tasks_get
 
 
 def test_mcp_server_loads():
@@ -109,3 +110,36 @@ def test_files_upload_returns_markdown(monkeypatch, tmp_path, httpx_mock):
     )
     assert uploaded['markdown'] == '![shot.png](media:33333333-3333-3333-3333-333333333333)'
     assert uploaded['role'] == 'image'
+
+
+def test_tasks_comment_posts_file_ids(monkeypatch, tmp_path, httpx_mock):
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    monkeypatch.setenv('SPRRINT_API_KEY', 'spr_live_ok')
+    file_id = '11111111-1111-1111-1111-111111111111'
+    other_id = '22222222-2222-2222-2222-222222222222'
+
+    def responder(request):
+        payload = json.loads(request.content)
+        assert payload['body'] == f'See this\n\n![shot.png](media:{file_id})'
+        assert payload['file_ids'] == [file_id, other_id]
+        assert payload['parent'] == 9
+        return httpx.Response(201, json={'ok': True, 'data': {
+            'id': 4,
+            'body': 'See this',
+            'attachments': [{'id': file_id, 'name': 'shot.png'}, {'id': other_id, 'name': 'brief.pdf'}],
+        }})
+
+    httpx_mock.add_callback(
+        responder,
+        method='POST',
+        url='https://sprrint.run/api/v1/projects/BR/tasks/BR-1/comments',
+    )
+    result = sprrint_tasks_comment(
+        'BR-1',
+        f'See this\n\n![shot.png](media:{file_id})',
+        project='BR',
+        parent=9,
+        file_ids=f'{file_id}, {other_id}',
+    )
+    assert result['body'] == 'See this'
+    assert [item['id'] for item in result['attachments']] == [file_id, other_id]

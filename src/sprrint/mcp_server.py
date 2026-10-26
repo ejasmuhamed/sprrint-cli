@@ -425,11 +425,13 @@ def sprrint_files_upload(
     project: Optional[str] = None,
     content_type: Optional[str] = None,
 ) -> dict:
-    """Upload a file for a task description. Send the bytes as base64. Do not send a local filesystem path.
+    """Upload a file for a task description or a comment. Send the bytes as base64. Do not send a local filesystem path.
 
     Returns id, name, content_type, kind, size, url, role, and markdown.
-    Images: insert markdown ![name](media:id). Other files: [name](media:id).
-    Then call sprrint_tasks_create or sprrint_tasks_update with that markdown in description.
+    Description: insert markdown ![name](media:id) for an image, [name](media:id) for any other file,
+    then call sprrint_tasks_create or sprrint_tasks_update.
+    Comment: pass the returned id to sprrint_tasks_comment as file_ids. Markdown in the comment body
+    is also saved as an attachment.
 
     New task: create the task (text is fine), upload, then update the description.
     Existing task: upload, then update with the previous description plus the new markdown in place.
@@ -459,9 +461,24 @@ def sprrint_files_upload(
 
 
 @mcp.tool()
-def sprrint_tasks_comment(key: str, body: str, project: Optional[str] = None, parent: Optional[int] = None) -> dict:
-    """Comment on a task. parent is an optional comment id for a reply."""
-    return _call(lambda: _client().comment(_project(project), key, body, parent))
+def sprrint_tasks_comment(
+    key: str,
+    body: str = '',
+    project: Optional[str] = None,
+    parent: Optional[int] = None,
+    file_ids: Optional[str] = None,
+) -> dict:
+    """Comment on a task. parent is an optional comment id for a reply.
+
+    To attach a file, upload it with sprrint_files_upload first, then pass the returned id
+    in file_ids (comma-separated). You can also put the returned markdown in body:
+    ![name](media:id) or [name](media:id). Those files are saved as comment attachments.
+    The stored body keeps the text. Attached markdown is not left as a raw token.
+    A comment can be a file with an empty body. A failed upload does not create the comment.
+    This call does not upload bytes. If it fails, nothing is attached and the previous comments remain.
+    """
+    ids = [part.strip() for part in file_ids.split(',') if part.strip()] if file_ids else None
+    return _call(lambda: _client().comment(_project(project), key, body, parent, file_ids=ids))
 
 
 @mcp.tool()
