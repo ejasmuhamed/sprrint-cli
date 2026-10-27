@@ -27,7 +27,7 @@ You need an account on [sprrint.run](https://sprrint.run).
 sprrint login
 ```
 
-Sprrint emails a 6-digit code. After it checks out, the CLI stores an API key in `~/.config/sprrint/config.toml` (mode `600`). The CLI and MCP always talk to `https://sprrint.run`.
+Sprrint emails a 6-digit code. After it checks out, the CLI stores an API key in `~/.config/sprrint/config.toml` (mode `600`). The CLI always talks to `https://sprrint.run`. Agents use `https://mcp.sprrint.run/mcp`.
 
 You can also mint a key in the web app: **You → Keys**, then:
 
@@ -71,31 +71,22 @@ sprrint tasks --help
 
 ## MCP
 
-The same client is an MCP server.
-
-```bash
-sprrint mcp
-```
-
-Cursor / Claude Desktop:
+Agents connect at `https://mcp.sprrint.run/mcp`. Send the key on every request. No local install.
 
 ```json
 {
   "mcpServers": {
     "sprrint": {
-      "command": "sprrint",
-      "args": ["mcp"],
-      "env": {
-        "SPRRINT_API_KEY": "spr_live_…"
+      "url": "https://mcp.sprrint.run/mcp",
+      "headers": {
+        "Authorization": "Bearer spr_live_…"
       }
     }
   }
 }
 ```
 
-Or sign in with the CLI first and omit the env block — the server reads `~/.config/sprrint/config.toml`.
-
-There is also a `sprrint-mcp` entry point if your client wants a dedicated binary.
+`sprrint mcp` (and the `sprrint-mcp` entry point) still runs a local stdio server for clients that cannot open a URL. It reads `SPRRINT_API_KEY` or `~/.config/sprrint/config.toml`.
 
 ## What it can do
 

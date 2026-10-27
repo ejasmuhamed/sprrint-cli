@@ -126,7 +126,10 @@ def login(
     me = result.get('user') or {}
     out(result, json_mode, win=f"In as {me.get('display_name') or me.get('username') or email}", plain=plain)
     if not json_mode:
-        console.print(f"Key saved to {settings.host()}. Run `sprrint now` or `sprrint mcp`.")
+        console.print(
+            f"Key saved to {settings.host()}. Run `sprrint now`. "
+            "Agents connect at https://mcp.sprrint.run/mcp."
+        )
 
 
 @app.command()
@@ -228,7 +231,7 @@ def activity(
 
 @app.command()
 def mcp():
-    """Run the Sprrint MCP server on stdio."""
+    """Run a local stdio MCP server. Agents use https://mcp.sprrint.run/mcp."""
     from sprrint.mcp_server import main as mcp_main
     mcp_main()
 
