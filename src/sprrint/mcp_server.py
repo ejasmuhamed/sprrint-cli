@@ -28,6 +28,9 @@ mcp = FastMCP(
         'Identify projects by key (BR) or slug. Identify tasks by key (BR-12). '
         'Releases group tasks (not sprints); selected_sprints on create/update expand to tasks. '
         'Task payloads may include releases: [{id, slug, name, version, status}]. '
+        'Link git work with sprrint_tasks_git_link (PR URL, branch, or commit SHA). '
+        'When starting a task, move it to progress. Comment decisions and blockers. '
+        'When done, link the PR and remaining commits, then move to done. '
         'Moving to blocked requires blocked_note. Completing a parent with open subtasks needs confirm_complete.'
     ),
 )
@@ -276,11 +279,12 @@ def sprrint_tasks_list(
 
 @mcp.tool()
 def sprrint_tasks_get(key: str, project: Optional[str] = None) -> dict:
-    """Get a task by key (BR-12), including comments, attachments, releases, and description_files.
+    """Get a task by key (BR-12), including comments, attachments, git_refs, releases, and description_files.
 
     description keeps stable media:id tokens. description_files lists each inline file in order
     with id, name, content_type, kind, size, url, role (image|file), and markdown.
     The attachments list is separate and does not replace description_files.
+    git_refs lists linked pull requests, branches, and commits.
     """
     def run():
         api = _client()
@@ -479,6 +483,28 @@ def sprrint_tasks_comment(
     """
     ids = [part.strip() for part in file_ids.split(',') if part.strip()] if file_ids else None
     return _call(lambda: _client().comment(_project(project), key, body, parent, file_ids=ids))
+
+
+@mcp.tool()
+def sprrint_tasks_git_link(
+    key: str,
+    value: str,
+    project: Optional[str] = None,
+    kind: Optional[str] = None,
+    title: Optional[str] = None,
+) -> dict:
+    """Link a pull request, branch, or commit to a task.
+
+    value is a PR URL, commit URL/SHA, or branch name. kind is optional: pull_request|branch|commit.
+    title is an optional PR title or commit subject.
+    """
+    return _call(lambda: _client().link_git_ref(_project(project), key, value, kind=kind, title=title))
+
+
+@mcp.tool()
+def sprrint_tasks_git_unlink(key: str, ref_id: int, project: Optional[str] = None) -> dict:
+    """Remove a git ref from a task. ref_id comes from git_refs on sprrint_tasks_get."""
+    return _call(lambda: _client().unlink_git_ref(_project(project), key, ref_id))
 
 
 @mcp.tool()

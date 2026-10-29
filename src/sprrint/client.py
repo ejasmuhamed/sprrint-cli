@@ -246,6 +246,17 @@ class Client:
             data['file_ids'] = file_ids
         return self.post(f'/projects/{ref}/tasks/{key}/comments', data)
 
+    def link_git_ref(self, ref: str, key: str, value: str, kind: str | None = None, title: str | None = None):
+        data: dict[str, Any] = {'value': value}
+        if kind:
+            data['kind'] = kind
+        if title:
+            data['title'] = title
+        return self.post(f'/projects/{ref}/tasks/{key}/git-refs', data)
+
+    def unlink_git_ref(self, ref: str, key: str, ref_id: int):
+        return self.delete(f'/projects/{ref}/tasks/{key}/git-refs/{ref_id}')
+
     def attach(self, ref: str, key: str, path: Path):
         upload = Path(path)
         with upload.open('rb') as handle:

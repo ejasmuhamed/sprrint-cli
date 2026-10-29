@@ -99,7 +99,7 @@ Everything the Sprrint app can do:
 | Workspace | get, update, invite, roles, leave, delete |
 | Projects | list, create, update, archive, restore, delete, members |
 | Now / Home | `now`, `overview`, project home |
-| Tasks | list, get, create, update, move, comment, attach (subtasks, blocked notes) |
+| Tasks | list, get, create, update, move, comment, attach, git-link / git-unlink (subtasks, blocked notes) |
 | Description files | `sprrint_files_upload` (base64), then `![name](media:id)` or `[name](media:id)` in the description |
 | Comment files | `sprrint_files_upload`, then `file_ids` on `sprrint_tasks_comment`. Markdown in the comment body is attached too |
 | Sprints | list, get, create, update, start, pause, complete, delete |

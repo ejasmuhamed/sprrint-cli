@@ -12,6 +12,8 @@ def test_mcp_server_loads():
     names = {tool.name for tool in tools}
     assert 'sprrint_now' in names
     assert 'sprrint_tasks_create' in names
+    assert 'sprrint_tasks_git_link' in names
+    assert 'sprrint_tasks_git_unlink' in names
     assert 'sprrint_files_upload' in names
     assert 'sprrint_blackhole_pull' in names
     assert 'sprrint_workspace_invite' in names

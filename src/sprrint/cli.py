@@ -371,6 +371,8 @@ def tasks_get(
     console.print(f"{data.get('status')}  {(data.get('sprint') or {}).get('name') or 'Black Hole'}")
     if data.get('description'):
         console.print(data['description'])
+    for item in data.get('git_refs') or []:
+        console.print(f"- {item.get('kind')} {item.get('short_ref') or item.get('ref')} {item.get('url') or ''}".rstrip())
     for comment in data.get('comments') or []:
         author = (comment.get('author') or {}).get('display_name')
         console.print(f"- {author}: {comment.get('body')}")
@@ -524,6 +526,46 @@ def tasks_comment(
     ref = api.resolve_project(project)
     data = run('save', 'Leaving a note', lambda: api.comment(ref, key, body, parent), plain=plain)
     out(data, json_mode, win='Noted.', plain=plain)
+
+
+@tasks_app.command('git-link')
+def tasks_git_link(
+    key: str,
+    value: str,
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    kind: Optional[str] = typer.Option(None, help='pull_request, branch, or commit.'),
+    title: Optional[str] = None,
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    data = run(
+        'save',
+        f'Linking git on {key}',
+        lambda: api.link_git_ref(ref, key, value, kind=kind, title=title),
+        plain=plain,
+    )
+    out(data, json_mode, win='Linked.', plain=plain)
+
+
+@tasks_app.command('git-unlink')
+def tasks_git_unlink(
+    key: str,
+    ref_id: int,
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    api = client()
+    ref = api.resolve_project(project)
+    data = run(
+        'save',
+        f'Unlinking git on {key}',
+        lambda: api.unlink_git_ref(ref, key, ref_id),
+        plain=plain,
+    )
+    out(data, json_mode, win='Unlinked.', plain=plain)
 
 
 @tasks_app.command('attach')
