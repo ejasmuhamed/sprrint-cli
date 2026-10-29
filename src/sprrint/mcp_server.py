@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+import inspect
 import re
+from functools import wraps
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from sprrint.client import Client
+from sprrint.client import Client, workspace_override
 from sprrint.errors import SprrintError
 
 _MEDIA_RE = re.compile(
@@ -25,6 +27,12 @@ mcp = FastMCP(
         'uses the Sprrint app: look at Now, create and move tasks, run sprints, plan releases, '
         'pull work out of the Black Hole, search, comment, and manage workspaces and projects. '
         'Set SPRRINT_WORKSPACE or config workspace to target a specific workspace. '
+        'Projects live in workspaces. sprrint_projects_list with no workspace argument returns every project '
+        'you can see, each with its workspace slug and name. Match by project name or key before creating a project. '
+        'A channel or chat name is not a project key. Pass workspace (a workspace slug) on a tool to target that '
+        'workspace for that call only. A project key that exists in only one workspace is found without workspace. '
+        'If the same key exists in more than one workspace, the tool lists those projects and you must pass workspace. '
+        'The active workspace is checked first. '
         'Identify projects by key (BR) or slug. Identify tasks by key (BR-12). '
         'Releases group tasks (not sprints); selected_sprints on create/update expand to tasks. '
         'Task payloads may include releases: [{id, slug, name, version, status}]. '
@@ -51,6 +59,35 @@ def _call(fn):
         payload = {'ok': False, 'error': exc.message, 'code': exc.code}
         payload.update(exc.extra)
         return payload
+
+
+def _with_workspace(fn):
+    signature = inspect.signature(fn, eval_str=True)
+
+    @wraps(fn)
+    def runner(*args, **kwargs):
+        workspace = None
+        try:
+            workspace = signature.bind_partial(*args, **kwargs).arguments.get('workspace')
+        except TypeError:
+            workspace = None
+        token = None
+        if workspace is not None and str(workspace).strip():
+            token = workspace_override.set(str(workspace).strip())
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            if token is not None:
+                workspace_override.reset(token)
+
+    runner.__signature__ = signature
+    return runner
+
+
+def tool(fn):
+    wrapped = _with_workspace(fn)
+    mcp.tool()(wrapped)
+    return wrapped
 
 
 def _markdown_for(role: str, label: str, file_id: str) -> str:
@@ -113,37 +150,44 @@ def _decode_upload(filename: str, content_base64: str) -> tuple[str, bytes]:
     return name, raw
 
 
-@mcp.tool()
+@tool
 def sprrint_whoami() -> dict:
     """Show the signed-in Sprrint user and workspace."""
     return _call(lambda: _client().me())
 
 
-@mcp.tool()
-def sprrint_overview() -> dict:
-    """Workspace home: greeting, counts, active sprints, and tasks that need a nudge."""
+@tool
+def sprrint_overview(workspace: Optional[str] = None) -> dict:
+    """Workspace home: greeting, counts, active sprints, and tasks that need a nudge.
+
+    workspace is an optional workspace slug for this call.
+    """
     return _call(lambda: _client().overview())
 
 
-@mcp.tool()
+@tool
 def sprrint_now(
     project: Optional[str] = None,
     sprint: Optional[str] = None,
     assigned: str = 'any',
     due: str = 'any',
     q: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Show the Now board for a project. Filter by sprint slug, assignee username, due window, or search text."""
     return _call(lambda: _client().now(_project(project), sprint=sprint or '', assigned=assigned, due=due, q=q or ''))
 
 
-@mcp.tool()
-def sprrint_search(q: str, project: Optional[str] = None) -> dict:
-    """Search tasks, sprints, and people. Optionally scope to a project key or slug."""
+@tool
+def sprrint_search(q: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
+    """Search tasks, sprints, and people. Optionally scope to a project key or slug.
+
+    workspace is an optional workspace slug for this call. A project key that exists in only one workspace is found without it.
+    """
     return _call(lambda: _client().search(q, project))
 
 
-@mcp.tool()
+@tool
 def sprrint_activity(
     project: Optional[str] = None,
     tab: str = 'history',
@@ -151,8 +195,12 @@ def sprrint_activity(
     actor: Optional[str] = None,
     type: Optional[str] = None,
     q: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
-    """Activity feed. tab is you|history (all still accepted as history). range is 0 (today), 7, 30, or all."""
+    """Activity feed. tab is you|history (all still accepted as history). range is 0 (today), 7, 30, or all.
+
+    workspace is an optional workspace slug for this call.
+    """
     params = {'tab': tab, 'range': range}
     if actor:
         params['actor'] = actor
@@ -163,13 +211,13 @@ def sprrint_activity(
     return _call(lambda: _client().activity(project, **params))
 
 
-@mcp.tool()
+@tool
 def sprrint_workspaces_list() -> dict:
     """List workspaces you belong to."""
     return _call(lambda: _client().workspaces())
 
 
-@mcp.tool()
+@tool
 def sprrint_workspaces_create(
     name: str,
     slug: Optional[str] = None,
@@ -182,42 +230,57 @@ def sprrint_workspaces_create(
     return _call(lambda: _client().create_workspace(**fields))
 
 
-@mcp.tool()
-def sprrint_projects_list() -> dict:
-    """List visible projects."""
-    return _call(lambda: _client().projects())
+@tool
+def sprrint_projects_list(workspace: Optional[str] = None) -> dict:
+    """List projects you can see.
+
+    Omit workspace to list every workspace. Pass a workspace slug to limit the list.
+    Each project includes its workspace slug and name. Match a project here before creating one.
+    A channel or chat name is not a project key.
+    """
+    if workspace and str(workspace).strip():
+        return _call(lambda: _client().projects())
+    return _call(lambda: _client().projects(all_workspaces=True))
 
 
-@mcp.tool()
-def sprrint_projects_get(project: str) -> dict:
-    """Get one project by key or slug, including members."""
+@tool
+def sprrint_projects_get(project: str, workspace: Optional[str] = None) -> dict:
+    """Get one project by key or slug, including members.
+
+    workspace is an optional workspace slug for this call. A key that exists in only one workspace is found without it.
+    """
     return _call(lambda: _client().project(project))
 
 
-@mcp.tool()
+@tool
 def sprrint_projects_create(
     name: str,
     key: Optional[str] = None,
     description: str = '',
     visibility: str = 'private',
     default_view: str = 'now',
+    workspace: Optional[str] = None,
 ) -> dict:
-    """Create a project. Key is 2–4 letters, unique in the workspace, and stays fixed. visibility is private|workspace."""
+    """Create a project. Key is 2–4 letters, unique in the workspace, and stays fixed. visibility is private|workspace.
+
+    Pass workspace (slug) so the project is created there. Without it, the project lands in the active workspace.
+    """
     fields = {'name': name, 'description': description, 'visibility': visibility, 'default_view': default_view}
     if key:
         fields['key'] = key
     return _call(lambda: _client().create_project(**fields))
 
 
-@mcp.tool()
+@tool
 def sprrint_projects_update(
     project: str,
     name: Optional[str] = None,
     description: Optional[str] = None,
     visibility: Optional[str] = None,
     default_view: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
-    """Update project settings."""
+    """Update project settings. workspace is an optional workspace slug for this call."""
     current = _client().project(project)
     payload = {
         'name': name or current['name'],
@@ -229,56 +292,60 @@ def sprrint_projects_update(
     return _call(lambda: _client().update_project(project, **payload))
 
 
-@mcp.tool()
-def sprrint_projects_archive(project: str) -> dict:
-    """Archive a project."""
+@tool
+def sprrint_projects_archive(project: str, workspace: Optional[str] = None) -> dict:
+    """Archive a project. workspace is an optional workspace slug for this call."""
     return _call(lambda: _client().archive_project(project))
 
 
-@mcp.tool()
-def sprrint_projects_restore(project_id: int) -> dict:
-    """Restore an archived project by numeric id."""
+@tool
+def sprrint_projects_restore(project_id: int, workspace: Optional[str] = None) -> dict:
+    """Restore an archived project by numeric id. Pass workspace when it is not the active workspace."""
     return _call(lambda: _client().restore_project(project_id))
 
 
-@mcp.tool()
-def sprrint_projects_delete(project: str, confirm: str) -> dict:
-    """Delete a project. confirm must be the exact project name."""
+@tool
+def sprrint_projects_delete(project: str, confirm: str, workspace: Optional[str] = None) -> dict:
+    """Delete a project. confirm must be the exact project name. workspace is an optional workspace slug for this call."""
     return _call(lambda: _client().delete_project(project, confirm))
 
 
-@mcp.tool()
-def sprrint_projects_add_member(project: str, user: str, role: str = 'member') -> dict:
+@tool
+def sprrint_projects_add_member(project: str, user: str, role: str = 'member', workspace: Optional[str] = None) -> dict:
     """Add a workspace member to a project. user is a username or id. role is member|owner."""
     return _call(lambda: _client().add_project_member(project, user, role))
 
 
-@mcp.tool()
-def sprrint_projects_remove_member(project: str, user_id: int) -> dict:
+@tool
+def sprrint_projects_remove_member(project: str, user_id: int, workspace: Optional[str] = None) -> dict:
     """Remove a person from a project."""
     return _call(lambda: _client().remove_project_member(project, user_id))
 
 
-@mcp.tool()
-def sprrint_home(project: Optional[str] = None) -> dict:
+@tool
+def sprrint_home(project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Project home dashboard."""
     return _call(lambda: _client().home(_project(project)))
 
 
-@mcp.tool()
+@tool
 def sprrint_tasks_list(
     project: Optional[str] = None,
     sprint: Optional[str] = None,
     assigned: str = 'any',
     due: str = 'any',
     q: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
-    """List tasks on a project. assigned is me|any|username. due is any|overdue|soon|later. sprint can be a slug or free."""
+    """List tasks on a project. assigned is me|any|username. due is any|overdue|soon|later. sprint can be a slug or free.
+
+    workspace is an optional workspace slug for this call.
+    """
     return _call(lambda: _client().tasks(_project(project), sprint=sprint or '', assigned=assigned, due=due, q=q or ''))
 
 
-@mcp.tool()
-def sprrint_tasks_get(key: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_tasks_get(key: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Get a task by key (BR-12), including comments, attachments, git_refs, releases, and description_files.
 
     description keeps stable media:id tokens. description_files lists each inline file in order
@@ -293,7 +360,7 @@ def sprrint_tasks_get(key: str, project: Optional[str] = None) -> dict:
     return _call(run)
 
 
-@mcp.tool()
+@tool
 def sprrint_tasks_create(
     title: str,
     project: Optional[str] = None,
@@ -307,9 +374,11 @@ def sprrint_tasks_create(
     parent: Optional[str] = None,
     blocked_note: Optional[str] = None,
     tags: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Create a task. status is todo|progress|blocked|done. priority is none|low|medium|high. assignee and tags are comma-separated.
 
+    workspace is an optional workspace slug for this call. A project key that exists in only one workspace is found without it.
     To embed a file, upload it with sprrint_files_upload first, then put the returned markdown
     in description: ![name](media:id) for an image, [name](media:id) for any other file.
     Text-only descriptions stay valid. A failed upload does not create the task.
@@ -336,7 +405,7 @@ def sprrint_tasks_create(
     return _call(run)
 
 
-@mcp.tool()
+@tool
 def sprrint_tasks_update(
     key: str,
     project: Optional[str] = None,
@@ -351,6 +420,7 @@ def sprrint_tasks_update(
     parent: Optional[str] = None,
     blocked_note: Optional[str] = None,
     tags: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Update a task. Pass only the fields that should change; others stay as they are.
 
@@ -398,19 +468,20 @@ def sprrint_tasks_update(
     return _call(lambda: _with_description_files(api, ref, api.update_task(ref, key, **fields)))
 
 
-@mcp.tool()
-def sprrint_tasks_delete(key: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_tasks_delete(key: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Permanently delete a task. Subtasks become top-level."""
     return _call(lambda: _client().delete_task(_project(project), key))
 
 
-@mcp.tool()
+@tool
 def sprrint_tasks_move(
     key: str,
     status: str,
     project: Optional[str] = None,
     blocked_note: Optional[str] = None,
     confirm_complete: bool = False,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Move a task to todo, progress, blocked, or done. blocked needs blocked_note. done may need confirm_complete when subtasks remain."""
     return _call(lambda: _client().move_task(
@@ -422,12 +493,13 @@ def sprrint_tasks_move(
     ))
 
 
-@mcp.tool()
+@tool
 def sprrint_files_upload(
     filename: str,
     content_base64: str,
     project: Optional[str] = None,
     content_type: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Upload a file for a task description or a comment. Send the bytes as base64. Do not send a local filesystem path.
 
@@ -464,13 +536,14 @@ def sprrint_files_upload(
     return _call(run)
 
 
-@mcp.tool()
+@tool
 def sprrint_tasks_comment(
     key: str,
     body: str = '',
     project: Optional[str] = None,
     parent: Optional[int] = None,
     file_ids: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Comment on a task. parent is an optional comment id for a reply.
 
@@ -485,13 +558,14 @@ def sprrint_tasks_comment(
     return _call(lambda: _client().comment(_project(project), key, body, parent, file_ids=ids))
 
 
-@mcp.tool()
+@tool
 def sprrint_tasks_git_link(
     key: str,
     value: str,
     project: Optional[str] = None,
     kind: Optional[str] = None,
     title: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Link a pull request, branch, or commit to a task.
 
@@ -501,25 +575,25 @@ def sprrint_tasks_git_link(
     return _call(lambda: _client().link_git_ref(_project(project), key, value, kind=kind, title=title))
 
 
-@mcp.tool()
-def sprrint_tasks_git_unlink(key: str, ref_id: int, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_tasks_git_unlink(key: str, ref_id: int, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Remove a git ref from a task. ref_id comes from git_refs on sprrint_tasks_get."""
     return _call(lambda: _client().unlink_git_ref(_project(project), key, ref_id))
 
 
-@mcp.tool()
-def sprrint_sprints_list(project: Optional[str] = None, status: Optional[str] = None) -> dict:
+@tool
+def sprrint_sprints_list(project: Optional[str] = None, status: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """List sprints. status is planned|active|done."""
     return _call(lambda: _client().sprints(_project(project), status))
 
 
-@mcp.tool()
-def sprrint_sprints_get(slug: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_sprints_get(slug: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Get a sprint and its tasks."""
     return _call(lambda: _client().sprint(_project(project), slug))
 
 
-@mcp.tool()
+@tool
 def sprrint_sprints_create(
     name: str,
     starts_on: str,
@@ -529,6 +603,7 @@ def sprrint_sprints_create(
     status: str = 'planned',
     category: Optional[str] = None,
     take: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Create a sprint. Dates are YYYY-MM-DD. take is comma-separated task keys to pull in."""
     fields = {'name': name, 'goal': goal, 'starts_on': starts_on, 'ends_on': ends_on, 'status': status}
@@ -539,7 +614,7 @@ def sprrint_sprints_create(
     return _call(lambda: _client().create_sprint(_project(project), **fields))
 
 
-@mcp.tool()
+@tool
 def sprrint_sprints_update(
     slug: str,
     project: Optional[str] = None,
@@ -548,6 +623,7 @@ def sprrint_sprints_update(
     starts_on: Optional[str] = None,
     ends_on: Optional[str] = None,
     status: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Update a sprint."""
     fields = {k: v for k, v in {
@@ -556,43 +632,43 @@ def sprrint_sprints_update(
     return _call(lambda: _client().update_sprint(_project(project), slug, **fields))
 
 
-@mcp.tool()
-def sprrint_sprints_start(slug: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_sprints_start(slug: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Start a planned sprint."""
     return _call(lambda: _client().start_sprint(_project(project), slug))
 
 
-@mcp.tool()
-def sprrint_sprints_pause(slug: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_sprints_pause(slug: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Pause an active sprint back to planned."""
     return _call(lambda: _client().pause_sprint(_project(project), slug))
 
 
-@mcp.tool()
-def sprrint_sprints_complete(slug: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_sprints_complete(slug: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Mark an active sprint done."""
     return _call(lambda: _client().complete_sprint(_project(project), slug))
 
 
-@mcp.tool()
-def sprrint_sprints_delete(slug: str, project: Optional[str] = None, move: str = 'free') -> dict:
+@tool
+def sprrint_sprints_delete(slug: str, project: Optional[str] = None, move: str = 'free', workspace: Optional[str] = None) -> dict:
     """Delete a sprint. move=free sends remaining tasks to the Black Hole."""
     return _call(lambda: _client().delete_sprint(_project(project), slug, move))
 
 
-@mcp.tool()
-def sprrint_releases_list(project: Optional[str] = None, status: Optional[str] = None) -> dict:
+@tool
+def sprrint_releases_list(project: Optional[str] = None, status: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """List releases. status is upcoming|live|past. Membership is tasks (selected_tasks), not sprints."""
     return _call(lambda: _client().releases(_project(project), status))
 
 
-@mcp.tool()
-def sprrint_releases_get(slug: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_releases_get(slug: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Get a release and its selected tasks."""
     return _call(lambda: _client().release(_project(project), slug))
 
 
-@mcp.tool()
+@tool
 def sprrint_releases_create(
     name: str = '',
     project: Optional[str] = None,
@@ -604,6 +680,7 @@ def sprrint_releases_create(
     owner: Optional[str] = None,
     tasks: Optional[str] = None,
     sprints: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Create a release. name is optional; version and environments are the primary identity. target_on is YYYY-MM-DD. environments is comma-separated env slugs/ids (each creates its own release page). tasks is comma-separated task ids/keys. sprints is comma-separated sprint slugs/ids that expand to tasks server-side."""
     fields = {'name': name, 'version': version, 'description': description, 'status': status}
@@ -620,7 +697,7 @@ def sprrint_releases_create(
     return _call(lambda: _client().create_release(_project(project), **fields))
 
 
-@mcp.tool()
+@tool
 def sprrint_releases_update(
     slug: str,
     project: Optional[str] = None,
@@ -633,6 +710,7 @@ def sprrint_releases_update(
     owner: Optional[str] = None,
     tasks: Optional[str] = None,
     sprints: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> dict:
     """Update a release. Pass tasks/sprints to replace membership; sprints expand to tasks server-side."""
     fields = {k: v for k, v in {
@@ -651,32 +729,35 @@ def sprrint_releases_update(
     return _call(lambda: _client().update_release(_project(project), slug, **fields))
 
 
-@mcp.tool()
-def sprrint_blackhole_list(project: Optional[str] = None) -> dict:
+@tool
+def sprrint_blackhole_list(project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """List unsprinted open tasks in the Black Hole."""
     return _call(lambda: _client().blackhole(_project(project)))
 
 
-@mcp.tool()
-def sprrint_blackhole_pull(key: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_blackhole_pull(key: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Pull a void task into the landing sprint (active first, else planned)."""
     return _call(lambda: _client().pull(_project(project), key))
 
 
-@mcp.tool()
-def sprrint_blackhole_drop(key: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_blackhole_drop(key: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Drop a task out of its sprint back into the Black Hole."""
     return _call(lambda: _client().drop(_project(project), key))
 
 
-@mcp.tool()
-def sprrint_workspace_get() -> dict:
-    """Workspace settings, members, pending invites, and archived projects."""
+@tool
+def sprrint_workspace_get(workspace: Optional[str] = None) -> dict:
+    """Workspace settings, members, pending invites, and archived projects.
+
+    workspace is an optional workspace slug for this call.
+    """
     return _call(lambda: _client().workspace())
 
 
-@mcp.tool()
-def sprrint_workspace_update(name: Optional[str] = None, slug: Optional[str] = None, description: Optional[str] = None) -> dict:
+@tool
+def sprrint_workspace_update(name: Optional[str] = None, slug: Optional[str] = None, description: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Update workspace name, slug, or description."""
     current = _client().workspace()['workspace']
     payload = {
@@ -687,25 +768,25 @@ def sprrint_workspace_update(name: Optional[str] = None, slug: Optional[str] = N
     return _call(lambda: _client().update_workspace(**payload))
 
 
-@mcp.tool()
-def sprrint_workspace_invite(email: str, role: str = 'member') -> dict:
+@tool
+def sprrint_workspace_invite(email: str, role: str = 'member', workspace: Optional[str] = None) -> dict:
     """Invite someone to the workspace by email. role is member|admin."""
     return _call(lambda: _client().invite(email, role))
 
 
-@mcp.tool()
-def sprrint_workspace_set_role(user_id: int, role: str) -> dict:
+@tool
+def sprrint_workspace_set_role(user_id: int, role: str, workspace: Optional[str] = None) -> dict:
     """Change a workspace member role. role is owner|admin|member."""
     return _call(lambda: _client().set_role(user_id, role))
 
 
-@mcp.tool()
-def sprrint_workspace_remove_member(user_id: int) -> dict:
+@tool
+def sprrint_workspace_remove_member(user_id: int, workspace: Optional[str] = None) -> dict:
     """Remove a person from the workspace."""
     return _call(lambda: _client().remove_member(user_id))
 
 
-@mcp.tool()
+@tool
 def sprrint_profile_update(
     display_name: Optional[str] = None,
     username: Optional[str] = None,
@@ -719,31 +800,31 @@ def sprrint_profile_update(
     return _call(lambda: _client().update_me(**fields))
 
 
-@mcp.tool()
-def sprrint_categories_list(project: Optional[str] = None) -> dict:
+@tool
+def sprrint_categories_list(project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """List task and sprint categories."""
     return _call(lambda: _client().categories(_project(project)))
 
 
-@mcp.tool()
-def sprrint_categories_create(kind: str, name: str, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_categories_create(kind: str, name: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Create a category. kind is task|sprint."""
     return _call(lambda: _client().create_category(_project(project), kind, name))
 
 
-@mcp.tool()
-def sprrint_categories_delete(category_id: int, project: Optional[str] = None) -> dict:
+@tool
+def sprrint_categories_delete(category_id: int, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
     """Delete an unused custom category."""
     return _call(lambda: _client().delete_category(_project(project), category_id))
 
 
-@mcp.tool()
+@tool
 def sprrint_keys_list() -> dict:
     """List active API keys for the signed-in user."""
     return _call(lambda: _client().keys())
 
 
-@mcp.tool()
+@tool
 def sprrint_keys_create(name: str = 'MCP', source: str = 'mcp') -> dict:
     """Create an API key. The full token is returned once."""
     return _call(lambda: _client().create_key(name, source))

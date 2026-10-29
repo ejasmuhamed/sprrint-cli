@@ -41,11 +41,19 @@ def task_table(tasks, title='Tasks'):
 def project_table(projects):
     table = Table(title='Projects', expand=True)
     table.add_column('Key', style='cyan', no_wrap=True)
+    table.add_column('Workspace', style='cyan', no_wrap=True)
     table.add_column('Name')
     table.add_column('Visibility')
     table.add_column('View')
     for project in projects:
-        table.add_row(project.get('key'), project.get('name'), project.get('visibility'), project.get('default_view'))
+        workspace = project.get('workspace') or {}
+        table.add_row(
+            project.get('key'),
+            workspace.get('slug') or '',
+            project.get('name'),
+            project.get('visibility'),
+            project.get('default_view'),
+        )
     return table
 
 

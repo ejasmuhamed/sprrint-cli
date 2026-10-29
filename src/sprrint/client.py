@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +8,8 @@ import httpx
 
 from sprrint.config import Settings, load, require_key
 from sprrint.errors import AuthError, SprrintError
+
+workspace_override: ContextVar[str] = ContextVar('sprrint_workspace_override', default='')
 
 
 class Client:
@@ -31,8 +34,9 @@ class Client:
         if auth:
             require_key(self.settings)
             headers['Authorization'] = f'Bearer {self.settings.api_key}'
-        if self.settings.workspace:
-            headers['X-Workspace-Slug'] = self.settings.workspace
+        slug = workspace_override.get() or self.settings.workspace
+        if slug:
+            headers['X-Workspace-Slug'] = slug
         return headers
 
     def _request(self, method: str, path: str, *, auth=True, json=None, files=None, params=None):
@@ -172,7 +176,9 @@ class Client:
             return self.get(f'/projects/{project}/activity', **params)
         return self.get('/overview/activity', **params)
 
-    def projects(self):
+    def projects(self, *, all_workspaces: bool = False):
+        if all_workspaces:
+            return self.get('/projects', all='1')
         return self.get('/projects')
 
     def create_project(self, **fields):

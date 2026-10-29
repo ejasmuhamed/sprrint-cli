@@ -112,6 +112,30 @@ def test_workspace_header(httpx_mock):
     assert client.projects() == []
 
 
+def test_workspace_override_replaces_configured_workspace(httpx_mock):
+    def check(request):
+        assert request.headers['X-Workspace-Slug'] == 'googerit'
+        return httpx.Response(200, json={'ok': True, 'data': []})
+
+    httpx_mock.add_callback(check, url='https://sprrint.run/api/v1/projects')
+    from sprrint.client import workspace_override
+    token = workspace_override.set('googerit')
+    try:
+        client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', workspace='acme'))
+        assert client.projects() == []
+    finally:
+        workspace_override.reset(token)
+
+
+def test_projects_all_sends_all_flag(httpx_mock):
+    httpx_mock.add_response(
+        url='https://sprrint.run/api/v1/projects?all=1',
+        json={'ok': True, 'data': []},
+    )
+    client = Client(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', workspace='acme'))
+    assert client.projects(all_workspaces=True) == []
+
+
 def test_move_task_blocked_note(httpx_mock):
     seen = {}
 

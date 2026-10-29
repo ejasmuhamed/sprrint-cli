@@ -22,6 +22,10 @@ def test_mcp_server_loads():
     assert 'sprrint_releases_get' in names
     assert 'sprrint_releases_update' in names
     assert len(names) >= 30
+    projects = mcp._tool_manager.get_tool('sprrint_projects_list')
+    assert 'workspace' in projects.parameters['properties']
+    assert 'every workspace' in projects.description
+    assert 'channel' in mcp.instructions
 
 
 def test_decode_upload_rejects_bad_input():

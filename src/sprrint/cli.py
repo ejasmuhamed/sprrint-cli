@@ -237,8 +237,17 @@ def mcp():
 
 
 @projects_app.command('list')
-def projects_list(json_mode: bool = typer.Option(False, '--json'), plain: bool = typer.Option(False, '--plain')):
-    data = run('read', 'Listing projects', lambda: client().projects(), plain=plain)
+def projects_list(
+    all_workspaces: bool = typer.Option(False, '--all', help='Every workspace you can see'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    data = run(
+        'read',
+        'Listing projects',
+        lambda: client().projects(all_workspaces=all_workspaces),
+        plain=plain,
+    )
     out(data, json_mode, None if json_mode else project_table(data))
 
 
