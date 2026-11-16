@@ -512,6 +512,8 @@ def tasks_delete(
 def tasks_move(
     key: str,
     status: str,
+    qa_body: Optional[str] = typer.Option(None, '--qa-body', help='Engineer response on resubmission or testing notes on failure'),
+    qa_owner_id: Optional[int] = typer.Option(None, '--qa-owner'),
     project: Optional[str] = typer.Option(None, '--project', '-p'),
     blocked_note: Optional[str] = typer.Option(None, '--blocked-note'),
     confirm_complete: bool = typer.Option(False, '--confirm-complete'),
@@ -523,7 +525,7 @@ def tasks_move(
     data = run(
         'work',
         f'Moving {key}',
-        lambda: api.move_task(ref, key, status, blocked_note=blocked_note, confirm_complete=confirm_complete),
+        lambda: api.move_task(ref, key, status, blocked_note=blocked_note, confirm_complete=confirm_complete, **({"qa_body": qa_body} if qa_body is not None else {}), **({"qa_owner_id": qa_owner_id} if qa_owner_id is not None else {})),
         plain=plain,
     )
     out(data, json_mode, win=f"{key} → {status}", plain=plain)
@@ -1162,8 +1164,9 @@ def main():
 @tasks_app.command('qa')
 def tasks_qa(
     key: str,
-    action: str = typer.Argument(..., help='configure, disable, submit, start, finding, note, reply, fix, verify, reopen, pass, fail'),
+    action: str = typer.Argument(..., help='enable, disable, configure, submit, start, round_notes, round_response, pass, fail'),
     body: str = typer.Option('', '--body', '-b'),
+    round_id: Optional[int] = typer.Option(None, '--round', help='Round ID from task details; defaults to current round'),
     finding_id: Optional[int] = typer.Option(None, '--finding'),
     owner_id: Optional[int] = typer.Option(None, '--owner'),
     file_ids: Optional[str] = typer.Option(None, '--file-ids', help='Comma-separated project file IDs'),
@@ -1176,6 +1179,6 @@ def tasks_qa(
     ref = api.resolve_project(project)
     data = run('work', f'Updating QA for {key}', lambda: api.post(f'/projects/{ref}/tasks/{key}/qa', {
         'action': action, 'body': body, 'finding_id': finding_id,
-        'owner_id': owner_id, 'file_ids': [value.strip() for value in (file_ids or '').split(',') if value.strip()],
+        **({'round_id': round_id} if round_id is not None else {}), 'owner_id': owner_id, 'file_ids': [value.strip() for value in (file_ids or '').split(',') if value.strip()],
     }), plain=plain)
     out(data, json_mode, win=f"{key} · {data.get('status_label', data.get('status'))} · QA Round {data.get('qa_round_number', 0)}", plain=plain)

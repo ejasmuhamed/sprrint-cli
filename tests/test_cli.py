@@ -165,3 +165,27 @@ def test_qa_failed_verdict_returns_api_error(monkeypatch, tmp_path, httpx_mock):
     result = runner.invoke(app, ['tasks', 'qa', 'BR-12', 'pass', '--body', 'Passed', '--plain'])
     assert result.exit_code == 1
     assert 'QA owner' in result.output
+
+
+def test_move_to_qa_with_round_response(monkeypatch, tmp_path, httpx_mock):
+    import json
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
+    httpx_mock.add_response(method='POST', url='https://sprrint.run/api/v1/projects/BR/tasks/BR-12/move',
+                            json={'ok': True, 'data': {'key': 'BR-12', 'status': 'qa_ready', 'qa_round_number': 2}})
+    result = runner.invoke(app, ['tasks', 'move', 'BR-12', 'qa_ready', '--qa-body', 'Fixed all round 1 issues', '--plain', '--json'])
+    assert result.exit_code == 0, result.output
+    assert json.loads(httpx_mock.get_request().content) == {'status': 'qa_ready', 'qa_body': 'Fixed all round 1 issues'}
+
+
+def test_edit_one_round_response(monkeypatch, tmp_path, httpx_mock):
+    import json
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
+    httpx_mock.add_response(method='POST', url='https://sprrint.run/api/v1/projects/BR/tasks/BR-12/qa',
+                            json={'ok': True, 'data': {'key': 'BR-12', 'status': 'qa_progress'}})
+    result = runner.invoke(app, ['tasks', 'qa', 'BR-12', 'round_response', '--round', '18', '--body', 'Updated explanation', '--plain'])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(httpx_mock.get_request().content)
+    assert payload['round_id'] == 18
+    assert payload['action'] == 'round_response'

@@ -234,6 +234,8 @@ class Client:
         position: float | None = None,
         blocked_note: str | None = None,
         confirm_complete: bool = False,
+        qa_body: str | None = None,
+        qa_owner_id: int | None = None,
     ):
         data: dict[str, Any] = {'status': status}
         if position is not None:
@@ -242,6 +244,10 @@ class Client:
             data['blocked_note'] = blocked_note
         if confirm_complete:
             data['confirm_complete'] = True
+        if qa_body is not None:
+            data['qa_body'] = qa_body
+        if qa_owner_id is not None:
+            data['qa_owner_id'] = qa_owner_id
         return self.post(f'/projects/{ref}/tasks/{key}/move', data)
 
     def comment(self, ref: str, key: str, body: str, parent: int | None = None, file_ids=None):

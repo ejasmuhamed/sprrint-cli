@@ -116,23 +116,25 @@ TTY sessions show a small stick figure while work is in flight — walking, wavi
 
 ### QA workflow
 
-Use `sprrint tasks qa KEY ACTION` to record QA handoffs, findings, fixes, and results. Each `submit` creates a numbered round; the QA owner starts testing and records the verdict. Findings remain linked to engineer responses and later verification.
+Task stages include `qa_ready`, `qa_progress`, and `qa_failed`. Normal moves and status edits use the QA round service. The first move to Ready for QA needs no message or owner. Starting testing assigns the person moving the task when no QA owner is set. Configure a different owner with `tasks qa KEY configure --owner ID`.
+
+Each round has one editable testing note and one editable engineer response. The QA owner uses `round_notes` to save or edit all testing notes together, including inline media. Moving to QA Failed uses the saved notes; supply `--qa-body` if no testing notes exist. After a failed round, moving back to Ready for QA requires `--qa-body`, saved as the engineer response on the failed round. This creates the next round. There is no per-finding response or verification requirement. Completion requires the QA owner, testing notes, and completed subtasks.
 
 ```sh
-sprrint tasks qa BR-12 configure --owner 7
-sprrint tasks qa BR-12 submit --body "Ready to test"
-sprrint tasks qa BR-12 start
-sprrint tasks qa BR-12 finding --body "Password error is missing"
-sprrint tasks qa BR-12 fail --body "Password validation fails"
-sprrint tasks list --sprint all --status qa_failed
-sprrint tasks qa BR-12 fix --finding 8 --body "Added error handling"
-sprrint tasks qa BR-12 submit --body "Fixed; ready for retest"
-sprrint tasks qa BR-12 start
-sprrint tasks qa BR-12 verify --finding 8 --body "Verified error feedback"
-sprrint tasks qa BR-12 pass --body "All checks passed"
+sprrint projects update BR --qa-required
+sprrint tasks move BR-12 qa_ready
+sprrint tasks move BR-12 qa_progress
+sprrint tasks qa BR-12 round_notes --body "Password feedback is missing"
+sprrint tasks move BR-12 qa_failed
+sprrint tasks move BR-12 progress
+sprrint tasks move BR-12 qa_ready --qa-body "Fixed all issues from round 1"
 sprrint tasks get BR-12 --json
+sprrint tasks qa BR-12 round_response --round 18 --body "Updated fix explanation"
+sprrint tasks move BR-12 qa_progress
+sprrint tasks qa BR-12 round_notes --body "All checks passed"
+sprrint tasks move BR-12 done
 ```
 
-`--finding` takes the database finding ID returned in `qa.findings`; `--owner` takes a workspace user ID. Use `note` anytime, `reply` for discussion, and `reopen` for a finding that still fails testing. `--file-ids` attaches existing project files. `projects update BR --qa-required` sets the default for new tasks; `--no-qa-required` clears it. Before any round or finding exists, `tasks qa BR-12 disable` makes an individual task exempt.
+`--round` is the round ID returned in `qa.rounds`, not its display number. Omit it to edit the current round. `--qa-owner` on a move and `--owner` on configure take workspace user IDs. `--file-ids` on `tasks qa` attaches project files; inline `![name](media:ID)` and `[name](media:ID)` are supported in notes and responses. `enable` and `disable` toggle the task's QA requirement at any time, preserving its owner, rounds, notes, and responses. The project default applies to newly created tasks. Legacy finding/reply/fix/verify/reopen actions remain available for existing clients and history.
 
-The local MCP server exposes `sprrint_tasks_qa` with the same actions, plus `owner_id`, `finding_id`, `body`, `file_ids`, `project`, and `workspace`. Task reads include the complete QA history. Use `sprrint_tasks_list(status="qa_failed", sprint="all")` to find failed tasks. General moves cannot bypass required QA.
+The local MCP server exposes the same flow through `sprrint_tasks_move(qa_body?, qa_owner_id?)` and `sprrint_tasks_qa(action, body?, round_id?)`. Task reads include round IDs, notes, engineer responses, authors, and attachments.

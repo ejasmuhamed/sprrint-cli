@@ -487,14 +487,18 @@ def sprrint_tasks_move(
     blocked_note: Optional[str] = None,
     confirm_complete: bool = False,
     workspace: Optional[str] = None,
+    qa_body: Optional[str] = None,
+    qa_owner_id: Optional[int] = None,
 ) -> dict:
-    """Move a task to todo, progress, blocked, or done. QA stages (qa_ready, qa_progress, qa_failed) use sprrint_tasks_qa; required QA must pass before done. blocked needs blocked_note. done may need confirm_complete when subtasks remain."""
+    """Move a task to todo, progress, blocked, qa_ready, qa_progress, qa_failed, or done. First QA submission needs no message. Later submissions require qa_body (one editable engineer response for the previous round). Failure uses saved testing notes or qa_body. blocked needs blocked_note. done may need confirm_complete when subtasks remain."""
     return _call(lambda: _client().move_task(
         _project(project),
         key,
         status,
         blocked_note=blocked_note,
         confirm_complete=confirm_complete,
+        **({"qa_body": qa_body} if qa_body is not None else {}),
+        **({"qa_owner_id": qa_owner_id} if qa_owner_id is not None else {}),
     ))
 
 
@@ -846,22 +850,24 @@ def sprrint_tasks_qa(
     key: str,
     action: str,
     body: str = '',
+    round_id: Optional[int] = None,
     finding_id: Optional[int] = None,
     owner_id: Optional[int] = None,
     file_ids: Optional[list[str]] = None,
     project: Optional[str] = None,
     workspace: Optional[str] = None,
 ) -> dict:
-    """Manage QA: configure (owner_id), disable (before rounds/findings), submit (handoff note; creates a round), start,
-    finding, note, reply, fix, verify, reopen, pass, fail. Finding responses require
-    finding_id and body. Only the QA owner may start, add findings, verify/reopen,
-    pass or fail. Fixes require a note; submit requires no open findings; pass
-    requires all findings verified. Read round history with sprrint_tasks_get.
-    Attach existing project files using file_ids.
+    """Manage QA: enable/disable requirement at any time; configure owner_id; submit
+    (first message optional, later message required); start; round_notes and
+    round_response (one editable body per round, optional round_id); pass/fail.
+    Testing notes are edited by the QA owner. There is no per-finding response
+    requirement. Legacy finding/reply/fix/verify/reopen actions remain supported.
+    Read round IDs/history with sprrint_tasks_get. Attach project files inline
+    using media: IDs or file_ids.
     """
     def run():
         data = {'action': action, 'body': body, 'finding_id': finding_id,
-                'owner_id': owner_id, 'file_ids': file_ids or []}
+                **({'round_id': round_id} if round_id is not None else {}), 'owner_id': owner_id, 'file_ids': file_ids or []}
         return _client().post(f'/projects/{_project(project)}/tasks/{key}/qa', data)
     return _call(run)
 

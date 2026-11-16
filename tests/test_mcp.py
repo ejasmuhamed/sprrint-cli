@@ -163,3 +163,19 @@ def test_qa_tool_schema_and_handoff(monkeypatch, tmp_path, httpx_mock):
     result = sprrint_tasks_qa('BR-12', 'submit', body='Fixed F1 and F2', project='BR')
     assert result['qa_round_number'] == 3
     assert json.loads(httpx_mock.get_request().content)['body'] == 'Fixed F1 and F2'
+
+
+def test_qa_move_schema_supports_handoff_and_round_edit(monkeypatch, tmp_path, httpx_mock):
+    from sprrint.mcp_server import sprrint_tasks_move, sprrint_tasks_qa
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    monkeypatch.setenv('SPRRINT_API_KEY', 'spr_live_ok')
+    assert {'qa_body', 'qa_owner_id'} <= set(mcp._tool_manager.get_tool('sprrint_tasks_move').parameters['properties'])
+    assert 'round_id' in mcp._tool_manager.get_tool('sprrint_tasks_qa').parameters['properties']
+    httpx_mock.add_response(method='POST', url='https://sprrint.run/api/v1/projects/BR/tasks/BR-12/move',
+                            json={'ok': True, 'data': {'status': 'qa_ready', 'qa_round_number': 2}})
+    assert sprrint_tasks_move('BR-12', 'qa_ready', project='BR', qa_body='Fixed all issues')['qa_round_number'] == 2
+    assert json.loads(httpx_mock.get_requests()[0].content)['qa_body'] == 'Fixed all issues'
+    httpx_mock.add_response(method='POST', url='https://sprrint.run/api/v1/projects/BR/tasks/BR-12/qa',
+                            json={'ok': True, 'data': {'status': 'qa_progress'}})
+    sprrint_tasks_qa('BR-12', 'round_notes', body='Updated notes', round_id=18, project='BR')
+    assert json.loads(httpx_mock.get_requests()[1].content)['round_id'] == 18
