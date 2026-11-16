@@ -141,3 +141,27 @@ def test_tasks_move_blocked_note(monkeypatch, tmp_path, httpx_mock):
     result = runner.invoke(app, ['tasks', 'move', 'BR-12', 'blocked', '--plain'])
     assert result.exit_code == 1
     assert 'blocked note' in result.stdout.lower() or 'blocked note' in result.stderr.lower()
+
+
+def test_qa_fix_command_preserves_finding_and_note(monkeypatch, tmp_path, httpx_mock):
+    import json
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
+    httpx_mock.add_response(method='POST', url='https://sprrint.run/api/v1/projects/BR/tasks/BR-12/qa',
+                            json={'ok': True, 'data': {'key': 'BR-12', 'status': 'progress', 'qa_round_number': 2}})
+    result = runner.invoke(app, ['tasks', 'qa', 'BR-12', 'fix', '--finding', '8', '--body', 'Fixed the password error', '--file-ids', 'file-a,file-b', '--plain', '--json'])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(httpx_mock.get_request().content)
+    assert payload == {'action': 'fix', 'body': 'Fixed the password error', 'finding_id': 8,
+                       'owner_id': None, 'file_ids': ['file-a', 'file-b']}
+    assert 'qa_round_number' in result.stdout
+
+
+def test_qa_failed_verdict_returns_api_error(monkeypatch, tmp_path, httpx_mock):
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    save(Settings(api_url='https://sprrint.run', api_key='spr_live_ok', project='BR'))
+    httpx_mock.add_response(method='POST', url='https://sprrint.run/api/v1/projects/BR/tasks/BR-12/qa', status_code=400,
+                            json={'ok': False, 'error': 'Only the assigned QA owner can perform this action.', 'code': 'invalid'})
+    result = runner.invoke(app, ['tasks', 'qa', 'BR-12', 'pass', '--body', 'Passed', '--plain'])
+    assert result.exit_code == 1
+    assert 'QA owner' in result.output

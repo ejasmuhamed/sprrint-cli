@@ -285,6 +285,7 @@ def projects_update(
     default_view: Optional[str] = None,
     json_mode: bool = typer.Option(False, '--json'),
     plain: bool = typer.Option(False, '--plain'),
+    qa_required_by_default: Optional[bool] = typer.Option(None, '--qa-required/--no-qa-required'),
 ):
     fields = {k: v for k, v in {
         'name': name, 'description': description, 'visibility': visibility, 'default_view': default_view,
@@ -296,6 +297,7 @@ def projects_update(
         'description': fields.get('description', current.get('description') or ''),
         'visibility': fields.get('visibility', current['visibility']),
         'default_view': fields.get('default_view', current['default_view']),
+        'qa_required_by_default': qa_required_by_default if qa_required_by_default is not None else current.get('qa_required_by_default', False),
     }
     data = run('save', 'Saving project', lambda: client().update_project(ref, **payload), plain=plain)
     out(data, json_mode, win='Project saved.', plain=plain)
@@ -356,10 +358,11 @@ def tasks_list(
     q: Optional[str] = None,
     json_mode: bool = typer.Option(False, '--json'),
     plain: bool = typer.Option(False, '--plain'),
+    status: Optional[str] = typer.Option(None, '--status', help='Task stage, including qa_ready, qa_progress, qa_failed'),
 ):
     api = client()
     ref = api.resolve_project(project)
-    data = run('read', 'Listing tasks', lambda: api.tasks(ref, sprint=sprint or '', assigned=assigned, due=due, q=q or ''), plain=plain)
+    data = run('read', 'Listing tasks', lambda: api.tasks(ref, sprint=sprint or '', assigned=assigned, due=due, q=q or '', status=status or ''), plain=plain)
     out(data, json_mode, None if json_mode else task_table(data))
 
 
@@ -382,6 +385,10 @@ def tasks_get(
         console.print(data['description'])
     for item in data.get('git_refs') or []:
         console.print(f"- {item.get('kind')} {item.get('short_ref') or item.get('ref')} {item.get('url') or ''}".rstrip())
+    if data.get('requires_qa'):
+        console.print(f"QA Round {data.get('qa_round_number', 0)} · {data.get('qa_badge', '')}")
+        for entry in (data.get('qa') or {}).get('entries', []):
+            console.print(f"- Round {entry.get('round') or '—'} · {entry.get('author_name', '')} · {entry.get('kind_label', entry.get('kind'))}: {entry.get('body')}")
     for comment in data.get('comments') or []:
         author = (comment.get('author') or {}).get('display_name')
         console.print(f"- {author}: {comment.get('body')}")
@@ -1150,3 +1157,25 @@ def main():
     if len(__import__('sys').argv) == 1:
         stickman.banner(console)
     app()
+
+
+@tasks_app.command('qa')
+def tasks_qa(
+    key: str,
+    action: str = typer.Argument(..., help='configure, disable, submit, start, finding, note, reply, fix, verify, reopen, pass, fail'),
+    body: str = typer.Option('', '--body', '-b'),
+    finding_id: Optional[int] = typer.Option(None, '--finding'),
+    owner_id: Optional[int] = typer.Option(None, '--owner'),
+    file_ids: Optional[str] = typer.Option(None, '--file-ids', help='Comma-separated project file IDs'),
+    project: Optional[str] = typer.Option(None, '--project', '-p'),
+    json_mode: bool = typer.Option(False, '--json'),
+    plain: bool = typer.Option(False, '--plain'),
+):
+    """Record a QA handoff, finding, fix, or result. Each submission starts a numbered round."""
+    api = client()
+    ref = api.resolve_project(project)
+    data = run('work', f'Updating QA for {key}', lambda: api.post(f'/projects/{ref}/tasks/{key}/qa', {
+        'action': action, 'body': body, 'finding_id': finding_id,
+        'owner_id': owner_id, 'file_ids': [value.strip() for value in (file_ids or '').split(',') if value.strip()],
+    }), plain=plain)
+    out(data, json_mode, win=f"{key} · {data.get('status_label', data.get('status'))} · QA Round {data.get('qa_round_number', 0)}", plain=plain)

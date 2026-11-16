@@ -24,7 +24,7 @@ def task_table(tasks, title='Tasks'):
         table.add_row(
             task.get('key') or '',
             task.get('title') or '',
-            task.get('status') or '',
+            (task.get('status_label') or task.get('status') or '') + (f" · QA Round {task['qa_round_number']}" if task.get('qa_round_number') else ''),
             (task.get('sprint') or {}).get('name') or 'Black Hole',
             ', '.join(
                 person.get('display_name')

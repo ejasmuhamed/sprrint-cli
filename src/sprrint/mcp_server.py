@@ -38,7 +38,8 @@ mcp = FastMCP(
         'Task payloads may include releases: [{id, slug, name, version, status}]. '
         'Link git work with sprrint_tasks_git_link (PR URL, branch, or commit SHA). '
         'When starting a task, move it to progress. Comment decisions and blockers. '
-        'When done, link the PR and remaining commits, then move to done. '
+        'When done, link the PR and remaining commits. Tasks requiring QA must pass QA before done. '
+        'Use sprrint_tasks_qa for numbered QA rounds, findings, fixes, and test results. '
         'Moving to blocked requires blocked_note. Completing a parent with open subtasks needs confirm_complete.'
     ),
 )
@@ -279,6 +280,7 @@ def sprrint_projects_update(
     visibility: Optional[str] = None,
     default_view: Optional[str] = None,
     workspace: Optional[str] = None,
+    qa_required_by_default: Optional[bool] = None,
 ) -> dict:
     """Update project settings. workspace is an optional workspace slug for this call."""
     current = _client().project(project)
@@ -288,6 +290,7 @@ def sprrint_projects_update(
         'description': description if description is not None else current.get('description') or '',
         'visibility': visibility or current['visibility'],
         'default_view': default_view or current['default_view'],
+            'qa_required_by_default': qa_required_by_default if qa_required_by_default is not None else current.get('qa_required_by_default', False),
     }
     return _call(lambda: _client().update_project(project, **payload))
 
@@ -336,17 +339,19 @@ def sprrint_tasks_list(
     due: str = 'any',
     q: Optional[str] = None,
     workspace: Optional[str] = None,
+    status: Optional[str] = None,
 ) -> dict:
     """List tasks on a project. assigned is me|any|username. due is any|overdue|soon|later. sprint can be a slug or free.
 
+    status filters by a task stage, including qa_ready, qa_progress, qa_failed. Use sprint=all for all sprints.
     workspace is an optional workspace slug for this call.
     """
-    return _call(lambda: _client().tasks(_project(project), sprint=sprint or '', assigned=assigned, due=due, q=q or ''))
+    return _call(lambda: _client().tasks(_project(project), sprint=sprint or '', assigned=assigned, due=due, q=q or '', status=status or ''))
 
 
 @tool
 def sprrint_tasks_get(key: str, project: Optional[str] = None, workspace: Optional[str] = None) -> dict:
-    """Get a task by key (BR-12), including comments, attachments, git_refs, releases, and description_files.
+    """Get a task by key (BR-12), including qa (rounds, findings, fix responses), comments, attachments, git_refs, releases, and description_files.
 
     description keeps stable media:id tokens. description_files lists each inline file in order
     with id, name, content_type, kind, size, url, role (image|file), and markdown.
@@ -376,7 +381,7 @@ def sprrint_tasks_create(
     tags: Optional[str] = None,
     workspace: Optional[str] = None,
 ) -> dict:
-    """Create a task. status is todo|progress|blocked|done. priority is none|low|medium|high. assignee and tags are comma-separated.
+    """Create a task. status is todo|progress|blocked|qa_ready|qa_progress|qa_failed|done. QA stages use sprrint_tasks_qa. priority is none|low|medium|high. assignee and tags are comma-separated.
 
     workspace is an optional workspace slug for this call. A project key that exists in only one workspace is found without it.
     To embed a file, upload it with sprrint_files_upload first, then put the returned markdown
@@ -483,7 +488,7 @@ def sprrint_tasks_move(
     confirm_complete: bool = False,
     workspace: Optional[str] = None,
 ) -> dict:
-    """Move a task to todo, progress, blocked, or done. blocked needs blocked_note. done may need confirm_complete when subtasks remain."""
+    """Move a task to todo, progress, blocked, or done. QA stages (qa_ready, qa_progress, qa_failed) use sprrint_tasks_qa; required QA must pass before done. blocked needs blocked_note. done may need confirm_complete when subtasks remain."""
     return _call(lambda: _client().move_task(
         _project(project),
         key,
@@ -832,6 +837,33 @@ def sprrint_keys_create(name: str = 'MCP', source: str = 'mcp') -> dict:
 
 def main():
     mcp.run(transport='stdio')
+
+
+
+
+@tool
+def sprrint_tasks_qa(
+    key: str,
+    action: str,
+    body: str = '',
+    finding_id: Optional[int] = None,
+    owner_id: Optional[int] = None,
+    file_ids: Optional[list[str]] = None,
+    project: Optional[str] = None,
+    workspace: Optional[str] = None,
+) -> dict:
+    """Manage QA: configure (owner_id), disable (before rounds/findings), submit (handoff note; creates a round), start,
+    finding, note, reply, fix, verify, reopen, pass, fail. Finding responses require
+    finding_id and body. Only the QA owner may start, add findings, verify/reopen,
+    pass or fail. Fixes require a note; submit requires no open findings; pass
+    requires all findings verified. Read round history with sprrint_tasks_get.
+    Attach existing project files using file_ids.
+    """
+    def run():
+        data = {'action': action, 'body': body, 'finding_id': finding_id,
+                'owner_id': owner_id, 'file_ids': file_ids or []}
+        return _client().post(f'/projects/{_project(project)}/tasks/{key}/qa', data)
+    return _call(run)
 
 
 if __name__ == '__main__':

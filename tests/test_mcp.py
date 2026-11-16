@@ -149,3 +149,17 @@ def test_tasks_comment_posts_file_ids(monkeypatch, tmp_path, httpx_mock):
     )
     assert result['body'] == 'See this'
     assert [item['id'] for item in result['attachments']] == [file_id, other_id]
+
+
+def test_qa_tool_schema_and_handoff(monkeypatch, tmp_path, httpx_mock):
+    from sprrint.mcp_server import sprrint_tasks_qa
+    monkeypatch.setenv('SPRRINT_HOME', str(tmp_path))
+    monkeypatch.setenv('SPRRINT_API_KEY', 'spr_live_ok')
+    tool = mcp._tool_manager.get_tool('sprrint_tasks_qa')
+    assert {'action', 'body', 'finding_id', 'owner_id', 'file_ids', 'workspace'} <= set(tool.parameters['properties'])
+    assert set(tool.parameters['required']) == {'key', 'action'}
+    httpx_mock.add_response(method='POST', url='https://sprrint.run/api/v1/projects/BR/tasks/BR-12/qa',
+                            json={'ok': True, 'data': {'status': 'qa_ready', 'qa_round_number': 3}})
+    result = sprrint_tasks_qa('BR-12', 'submit', body='Fixed F1 and F2', project='BR')
+    assert result['qa_round_number'] == 3
+    assert json.loads(httpx_mock.get_request().content)['body'] == 'Fixed F1 and F2'

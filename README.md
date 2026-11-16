@@ -113,3 +113,26 @@ The web app, CLI, and MCP share `/api/v1` and the same permissions.
 ## Stickman
 
 TTY sessions show a small stick figure while work is in flight — walking, waving, pulling from the void, arms up when it lands. `--plain` or a pipe turns that off.
+
+### QA workflow
+
+Use `sprrint tasks qa KEY ACTION` to record QA handoffs, findings, fixes, and results. Each `submit` creates a numbered round; the QA owner starts testing and records the verdict. Findings remain linked to engineer responses and later verification.
+
+```sh
+sprrint tasks qa BR-12 configure --owner 7
+sprrint tasks qa BR-12 submit --body "Ready to test"
+sprrint tasks qa BR-12 start
+sprrint tasks qa BR-12 finding --body "Password error is missing"
+sprrint tasks qa BR-12 fail --body "Password validation fails"
+sprrint tasks list --sprint all --status qa_failed
+sprrint tasks qa BR-12 fix --finding 8 --body "Added error handling"
+sprrint tasks qa BR-12 submit --body "Fixed; ready for retest"
+sprrint tasks qa BR-12 start
+sprrint tasks qa BR-12 verify --finding 8 --body "Verified error feedback"
+sprrint tasks qa BR-12 pass --body "All checks passed"
+sprrint tasks get BR-12 --json
+```
+
+`--finding` takes the database finding ID returned in `qa.findings`; `--owner` takes a workspace user ID. Use `note` anytime, `reply` for discussion, and `reopen` for a finding that still fails testing. `--file-ids` attaches existing project files. `projects update BR --qa-required` sets the default for new tasks; `--no-qa-required` clears it. Before any round or finding exists, `tasks qa BR-12 disable` makes an individual task exempt.
+
+The local MCP server exposes `sprrint_tasks_qa` with the same actions, plus `owner_id`, `finding_id`, `body`, `file_ids`, `project`, and `workspace`. Task reads include the complete QA history. Use `sprrint_tasks_list(status="qa_failed", sprint="all")` to find failed tasks. General moves cannot bypass required QA.
